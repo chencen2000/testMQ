@@ -1,4 +1,5 @@
 ﻿using Accord;
+using Accord.Controls;
 using Accord.Imaging;
 using Accord.Imaging.Filters;
 using Accord.Imaging.Formats;
@@ -63,12 +64,13 @@ namespace testMQ
 
             Bitmap[] test = new Bitmap[]
             {
-                new Bitmap("temp_1x1.jpg"),//ImageDecoder.DecodeFromFile("temp_1x1.jpg"),
-                new Bitmap("temp_2x1.jpg"),//ImageDecoder.DecodeFromFile("temp_1x2.jpg"),
+                new Bitmap(@"C:\Users\qa\Desktop\picture\ios-7-app-icon-template_88183.png"),//ImageDecoder.DecodeFromFile("temp_1x1.jpg"),
+                new Bitmap(@"C:\Users\qa\Desktop\picture\test_mail_icon.jpg"),//ImageDecoder.DecodeFromFile("temp_1x2.jpg"),
                 new Bitmap(@"C:\Users\qa\Desktop\picture\iphone_icon\email_icon_t.jpg"),
             };
             double[][] fs = bow.Transform(test);
             output = svm.Decide(fs);
+            ImageBox.Show(test[1]).Hold();
         }
         static void extra_icon_from_home_screen()
         {

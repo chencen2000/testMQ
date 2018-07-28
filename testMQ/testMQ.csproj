@@ -54,6 +54,12 @@
     <Reference Include="Accord, Version=3.8.0.0, Culture=neutral, PublicKeyToken=fa1a88e29555ccf7, processorArchitecture=MSIL">
       <HintPath>..\packages\Accord.3.8.0\lib\net40\Accord.dll</HintPath>
     </Reference>
+    <Reference Include="Accord.Controls, Version=3.8.0.0, Culture=neutral, PublicKeyToken=fa1a88e29555ccf7, processorArchitecture=MSIL">
+      <HintPath>..\packages\Accord.Controls.3.8.0\lib\net40\Accord.Controls.dll</HintPath>
+    </Reference>
+    <Reference Include="Accord.Controls.Imaging, Version=3.8.0.0, Culture=neutral, PublicKeyToken=fa1a88e29555ccf7, processorArchitecture=MSIL">
+      <HintPath>..\packages\Accord.Controls.Imaging.3.8.0\lib\net40\Accord.Controls.Imaging.dll</HintPath>
+    </Reference>
     <Reference Include="Accord.Imaging, Version=3.8.0.0, Culture=neutral, PublicKeyToken=fa1a88e29555ccf7, processorArchitecture=MSIL">
       <HintPath>..\packages\Accord.Imaging.3.8.0\lib\net40\Accord.Imaging.dll</HintPath>
     </Reference>
@@ -88,6 +94,9 @@
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
+    <Reference Include="ZedGraph, Version=5.1.7.430, Culture=neutral, PublicKeyToken=02a83cbd123fcd60, processorArchitecture=MSIL">
+      <HintPath>..\packages\ZedGraph.5.1.7\lib\net35-Client\ZedGraph.dll</HintPath>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="CheckEmptyImageByML.cs" />
@@ -123,6 +132,7 @@
     </Compile>
   </ItemGroup>
   <ItemGroup>
+    <Content Include="License-LGPL.txt" />
     <Content Include="readme.txt" />
   </ItemGroup>
   <ItemGroup>
