@@ -1,4 +1,5 @@
-﻿using Accord.Video.DirectShow;
+﻿using Accord.Imaging.Filters;
+using Accord.Video.DirectShow;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -10,6 +11,13 @@ using System.Windows.Forms;
 
 namespace testMQ
 {
+    public class DeviceInfomation
+    {
+        bool ready;
+        public double angle;
+        Rectangle rect;
+        DateTime dt;
+    }
     public partial class Form1 : Form
     {
         VideoCaptureDevice videoSource = null;
@@ -60,6 +68,8 @@ namespace testMQ
         {
             Program.logIt("processImageThread: ++");
             DateTime dt = DateTime.Now;
+            double angle = 0.0;
+            Rectangle rect = Rectangle.Empty;
             while (!quit.WaitOne(10))
             {
                 if (new_frame_queue.Count > 0)
@@ -74,6 +84,25 @@ namespace testMQ
                             bool same_frame = (current_image == null) ? false : ImUtility.is_same_image((Bitmap)cf.Clone(), (Bitmap)current_image.Clone());
                             if (!same_frame)
                             {
+                                if (angle == 0.0)
+                                {
+                                    Tuple<Bitmap, double, Rectangle> res = ImUtility.smate_rotate((Bitmap)cf.Clone());
+                                    if(res.Item1!=null)
+                                    {
+                                        cf = res.Item1;
+                                        angle = res.Item2;
+                                        rect = res.Item3;
+                                    }
+                                }
+                                else
+                                {
+                                    // turn and crop
+                                    RotateBicubic filter = new RotateBicubic(angle);
+                                    Bitmap src1 = filter.Apply(cf);
+                                    Crop c_filter = new Crop(rect);
+                                    cf = c_filter.Apply(src1);
+
+                                }
                                 pictureBox1.Invoke(new MethodInvoker(delegate
                                 {
                                     current_image = cf;
