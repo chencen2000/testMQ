@@ -9,9 +9,28 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Text;
+using Tesseract;
 
 namespace testMQ
 {
+    class ocrEng
+    {
+        ocrEng()
+        {
+            //thisEng = new TesseractEngine(@"./tessdata", "eng", EngineMode.Default);
+        }
+        public void test(Bitmap src)
+        {
+        }
+        static public string ocr_easy(Bitmap src)
+        {
+            string ret = string.Empty;
+            TesseractEngine eng = new TesseractEngine(@"./tessdata", "eng", EngineMode.Default);
+            var res = eng.Process(src);
+            ret = res.GetText();
+            return ret;
+        }
+    }
     class MachineLearning
     {
         public static Rectangle[] blue_block_filter(Rectangle[] goodR)
@@ -51,6 +70,32 @@ namespace testMQ
 
     class ImUtility
     {
+        public static double get_PSNR(Bitmap b1, Bitmap b2)
+        {
+            double psnr = 0.0;
+            if (b1 != null && b2 != null)
+            {
+                Image<Bgra, Byte> img1 = new Image<Bgra, byte>(b1);
+                Image<Bgra, Byte> img2 = new Image<Bgra, byte>(b2);
+                /*
+                Mat m1 = img1.Mat; // CvInvoke.Imread(@"C:\test\save_00.jpg", ImreadModes.AnyColor);
+                Mat m2 = img2.Mat; // CvInvoke.Imread(@"C:\test\save_01.jpg", ImreadModes.AnyColor);
+                Mat diff = new Mat();
+                CvInvoke.AbsDiff(m1, m2, diff);
+                Mat bf = new Mat();
+                diff.ConvertTo(bf, DepthType.Cv32F);
+                CvInvoke.Multiply(bf, bf, bf);
+                MCvScalar sum = CvInvoke.Sum(bf);
+                double sse = sum.V0 + sum.V1 + sum.V2;
+                double mse = sse / (double)(m1.NumberOfChannels * m1.Total.ToInt32());
+                psnr = 10.0 * Math.Log10((255 * 255) / mse); // less than 15, meaning b1 is diff as b2
+                */
+                psnr = CvInvoke.PSNR(img1, img2);
+            }
+            Program.logIt(string.Format("psnr={0}", psnr));
+            return psnr;
+        }
+
         public static Rectangle[] haar_detect(string cascadefile, Image<Bgra, byte> source)
         {
             Rectangle[] ret = null;
@@ -272,16 +317,19 @@ namespace testMQ
             return ret.ToArray();
         }
 
-        public static bool is_same_image(Bitmap f1, Bitmap f2)
+        public static bool is_same_image(Bitmap f1, Bitmap f2, double threshold=25.0)
         {
             bool ret = false;
             if (f1 != null && f2 != null)
             {
                 if (f1.Width == f2.Width && f1.Height == f2.Height)
                 {
-                    Subtract sf = new Subtract(f1);
-                    Bitmap r = sf.Apply(f2);
-                    ret = CheckEmptyImageByML.getInstance().isImageEmpty(r);
+                    //Subtract sf = new Subtract(f1);
+                    //Bitmap r = sf.Apply(f2);
+                    //ret = CheckEmptyImageByML.getInstance().isImageEmpty(r);
+                    double d = get_PSNR(f1, f2);
+                    if (d > threshold)
+                        ret = true;
                 }
                 else
                 {
@@ -390,5 +438,297 @@ namespace testMQ
             }
             return new Tuple<Bitmap, double, Rectangle>(retB, retAngle, retR);
         }
+        public static Tuple<Bitmap, double, Rectangle> smate_rotate_1(Bitmap src, double pre_angle=0.0, double min_area=0.0)
+        {
+            Bitmap retB = null;
+            double retD = 0.0;
+            Rectangle retR = Rectangle.Empty;
+            Image<Bgra, byte> rotated = null;
+            Image<Bgra, byte> img = new Image<Bgra, byte>(src);
+            //img.Save("temp_1.jpg");
+            UMat uimage = new UMat();
+            CvInvoke.CvtColor(img, uimage, ColorConversion.Bgr2Gray);
+            UMat pyrDown = new UMat();
+            CvInvoke.PyrDown(uimage, pyrDown);
+            CvInvoke.PyrUp(pyrDown, uimage);
+            CvInvoke.Threshold(uimage, pyrDown, 0, 255, ThresholdType.Binary | ThresholdType.Otsu);
+            uimage = pyrDown;
+            double cannyThreshold = 180.0;
+            double cannyThresholdLinking = 120.0;
+            UMat cannyEdges = new UMat();
+            CvInvoke.Canny(uimage, cannyEdges, cannyThreshold, cannyThresholdLinking);
+            {
+                List<double> angles = new List<double>();
+                double ratio = 1.0;
+                LineSegment2D[] lines = CvInvoke.HoughLinesP(
+                   cannyEdges,
+                   1, //Distance resolution in pixel-related units
+                   Math.PI / 180.0, //Angle resolution measured in radians.
+                   20, //threshold
+                   100, //min Line width
+                   10); //gap between lines
+                for(int i=0; i < lines.Length; i++)
+                {
+                    double k = ((double)(lines[i].P1.Y - lines[i].P2.Y)) / ((double)(lines[i].P1.X - lines[i].P2.X));
+                    double a = Math.Atan(Math.Abs(k)) * (180 / Math.PI);
+                    if (a > 45.0)
+                    {
+                        a = 90.0 - a;
+                        if (k > 0) ratio = 1.0;
+                        else ratio = -1.0;
+                    }
+                    else
+                    {
+                        if (k > 0) ratio = -1.0;
+                        else ratio = 1.0;
+                    }
+                    angles.Add(a);
+                    Program.logIt(string.Format("{0}-{1}, {3} len={2}", lines[i].P1, lines[i].P2, lines[i].Length, a));
+                }
+                if (angles.Count > 0)
+                {
+                    ratio *= angles.Average();
+                    retD = pre_angle + ratio;
+                    rotated = img.Rotate(retD, new Bgra(0, 0, 0, 255), false);
+                }
+            }
+            if (rotated != null)
+            {
+                uimage = new UMat();
+                CvInvoke.CvtColor(rotated, uimage, ColorConversion.Bgr2Gray);
+                pyrDown = new UMat();
+                CvInvoke.PyrDown(uimage, pyrDown);
+                CvInvoke.PyrUp(pyrDown, uimage);
+                //MCvScalar mean = new MCvScalar();
+                //MCvScalar std_dev = new MCvScalar();
+                //CvInvoke.MeanStdDev(uimage, ref mean, ref std_dev);
+                //CvInvoke.Threshold(uimage, pyrDown, mean.V0 + std_dev.V0, 255, ThresholdType.Binary);
+                CvInvoke.Threshold(uimage, pyrDown, 0, 255, ThresholdType.Binary | ThresholdType.Otsu);
+                uimage = pyrDown;
+                //uimage.Save("temp_2.jpg");
+                Rectangle roi = Rectangle.Empty;
+                using (VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint())
+                {
+                    CvInvoke.FindContours(uimage, contours, null, RetrType.External, ChainApproxMethod.ChainApproxNone);
+                    int count = contours.Size;
+                    for (int i = 0; i < count; i++)
+                    {
+                        double a1 = CvInvoke.ContourArea(contours[i], false);
+                        Rectangle r = CvInvoke.BoundingRectangle(contours[i]);
+                        //Program.logIt(string.Format("{0}", r));
+                        if (a1 > min_area)
+                        {
+                            if (roi.IsEmpty) roi = r;
+                            else roi = Rectangle.Union(roi, r);
+                        }
+                    }
+                }
+                Image<Bgra, byte> copped = rotated.GetSubRect(roi);
+                //copped.Save("temp_3.jpg");
+                retB = copped.Bitmap;
+                retR = roi;
+            }
+
+            return new Tuple<Bitmap, double, Rectangle>(retB, retD, retR);
+        }
+        public static Tuple<bool, Rectangle, Bitmap> extrac_blue_block(Bitmap src, Size minS = default(Size))
+        {
+            bool retB = false;
+            Rectangle retR = Rectangle.Empty;
+            Bitmap retImg = null;
+            Image<Bgr, Byte> img = new Image<Bgr, byte>(src);
+            Mat img1 = new Mat();
+            CvInvoke.GaussianBlur(img, img1, new Size(11, 11), 0);
+            //img1.Save("temp_1.jpg");
+
+            //Bgr c1 = new Bgr(100, 50, 0); //new Bgr(160, 50, 30);
+            //Bgr c2 = new Bgr(250, 220, 100); //new Bgr(250, 200, 100);
+            //Bgr c1 = new Bgr(170, 130, 70); //new Bgr(160, 50, 30);
+            //Bgr c2 = new Bgr(250, 230, 160); //new Bgr(250, 200, 100);
+            Bgr c1 = new Bgr(80, 20, 10);
+            Bgr c2 = new Bgr(160, 100, 60);
+            Image<Gray, Byte> g1 = (img1.ToImage<Bgr, Byte>()).InRange(c1, c2);
+            //g1.Save("temp_2.jpg");
+            Rectangle maxR = new Rectangle(0, 0, minS.Width, minS.Height);
+            using (VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint())
+            {
+                CvInvoke.FindContours(g1, contours, null, RetrType.External, ChainApproxMethod.ChainApproxNone);
+                int count = contours.Size;
+                for (int i = 0; i < count; i++)
+                {
+                    Rectangle r = CvInvoke.BoundingRectangle(contours[i]);
+                    if (r.Height * r.Width > maxR.Height * maxR.Width)
+                    {
+                        maxR = r;
+                        retB = true;
+                    }
+                }
+            }
+            if (retB)
+            {
+                retB = true;
+                retR = maxR;
+                retImg = img.GetSubRect(retR).Bitmap;
+            }
+            return new Tuple<bool, Rectangle, Bitmap>(retB, retR, retImg);
+        }
+        public static Tuple<bool, Rectangle, Bitmap> extrac_context_menu(Bitmap b1, Bitmap b2)
+        {
+            bool retB = false;
+            Rectangle retR = Rectangle.Empty;
+            Bitmap retImg = null;
+            Image<Bgra, byte> img1 = new Image<Bgra, byte>(b1);
+            Image<Bgra, byte> img2 = new Image<Bgra, byte>(b2);
+            Image<Bgra, byte> diff = img2.AbsDiff(img1);
+            //diff.Save("temp_2.jpg");
+            img1 = diff.PyrDown();
+            diff = img1.PyrUp();
+            //img2.Save("temp_2.jpg");
+            UMat uimage = new UMat();
+            CvInvoke.CvtColor(diff, uimage, ColorConversion.Bgr2Gray);
+            //uimage.Save("temp_3.jpg");
+            //MCvScalar mean = new MCvScalar();
+            //MCvScalar std_dev = new MCvScalar();
+            //CvInvoke.MeanStdDev(uimage, ref mean, ref std_dev);
+            UMat bimage = new UMat();
+            //CvInvoke.Threshold(uimage, bimage, mean.V0 + std_dev.V0, 255, ThresholdType.Binary);
+            CvInvoke.Threshold(uimage, bimage, 0, 255, ThresholdType.Binary| ThresholdType.Otsu);
+            //bimage.Save("temp_2.jpg");
+            Rectangle roi = Rectangle.Empty;
+            using (VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint())
+            {
+                CvInvoke.FindContours(bimage, contours, null, RetrType.External, ChainApproxMethod.ChainApproxNone);
+                int count = contours.Size;
+                for (int i = 0; i < count; i++)
+                {
+                    double a1 = CvInvoke.ContourArea(contours[i], false);
+                    Rectangle r = CvInvoke.BoundingRectangle(contours[i]);
+                    //Program.logIt(string.Format("{0}", r));
+                    if (a1 > 100.0)
+                    {
+                        //Program.logIt(string.Format("{0}", r));
+                        if (roi.IsEmpty) roi = r;
+                        else roi = Rectangle.Union(roi, r);
+                    }
+                }
+            }
+            if (!roi.IsEmpty && img2.Width>roi.Width && img2.Height>roi.Height)
+            {
+                //Image<Bgra, byte> cropped = img2.GetSubRect(roi);
+                retB = true;
+                retR = roi;
+                retImg = img2.GetSubRect(retR).Bitmap;
+                //Program.logIt(string.Format("rect={0}", retR));
+            }
+            return new Tuple<bool, Rectangle, Bitmap>(retB, retR, retImg);
+        }
+        public static Bitmap crop_image(Bitmap src, Rectangle rect, double enlarge = 0.0)
+        {
+            Bitmap ret = null;
+            if (src != null && !rect.IsEmpty)
+            {
+                Image<Bgra, Byte> i = new Image<Bgra, byte>(src);
+                Rectangle r = rect;
+                if (enlarge != 0.0)
+                {
+                    int w = (int)(enlarge * rect.Width);
+                    int h = (int)(enlarge * rect.Height);
+                    r.Inflate(new Size(w, h));
+                }
+                if (i.Width > r.Width && i.Height > r.Height)
+                {
+                    ret = i.GetSubRect(r).Bitmap;
+                }
+            }
+            return ret;
+        }
+        public static Tuple<bool, Rectangle, Bitmap> find_focused_menu(Bitmap src)
+        {
+            Rectangle retR = Rectangle.Empty;
+            Bitmap retB = null;
+            bool ret = false;
+            Image<Gray, Byte> uimage = new Image<Gray, Byte>(src);
+            UMat pyrDown = new UMat();
+            CvInvoke.PyrDown(uimage, pyrDown);
+            CvInvoke.PyrUp(pyrDown, uimage);
+            double cannyThreshold = 180.0;
+            double cannyThresholdLinking = 120.0;
+            UMat cannyEdges = new UMat();
+            CvInvoke.Canny(uimage, cannyEdges, cannyThreshold, cannyThresholdLinking);
+            //cannyEdges.Save("temp_1.jpg");
+            using (VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint())
+            {
+                CvInvoke.FindContours(cannyEdges, contours, null, RetrType.External, ChainApproxMethod.ChainApproxNone);
+                int count = contours.Size;
+                for (int i = 0; i < count; i++)
+                {
+                    VectorOfPoint contour = contours[i];
+                    VectorOfPoint approxContour = new VectorOfPoint();
+                    double al = CvInvoke.ArcLength(contour, true);
+                    CvInvoke.ApproxPolyDP(contour, approxContour, al * 0.05, true);
+                    if (approxContour.Size == 4)
+                    {
+                        double a1 = CvInvoke.ContourArea(contours[i], false);
+                        if (a1 > 100.0)
+                        {
+                            Rectangle r = CvInvoke.BoundingRectangle(contours[i]);
+                            //Program.logIt(string.Format("{0}", r));
+                            //using(Graphics g = Graphics.FromImage(src))
+                            //{
+                            //    g.DrawRectangle(new Pen(Color.Red), r);
+                            //}
+                            if (r.Width * r.Height > retR.Width * retR.Height)
+                                retR = r;
+                        }
+                    }
+                }
+            }
+            //src.Save("temp_2.jpg");
+            if (!retR.IsEmpty)
+            {
+                ret = true;
+                Image<Bgr, byte> i = new Image<Bgr, byte>(src);
+                retB = (i.GetSubRect(retR)).Bitmap;
+            }
+            return new Tuple<bool, Rectangle, Bitmap>(ret, retR, retB);
+        }
+        public static Tuple<bool, Rectangle> extra_blue_block_in_settings(Bitmap src)
+        {
+            bool retB = false;
+            Rectangle retR = Rectangle.Empty;
+            Image<Bgr, Byte> b1 = new Image<Bgr, Byte>(src);
+            Mat img1 = new Mat();
+            CvInvoke.GaussianBlur(b1, img1, new Size(7, 7), 0);
+            //img1.Save("temp_1.jpg");
+            Bgr c1 = new Bgr(160, 150, 70);
+            Bgr c2 = new Bgr(240, 230, 150);
+            Image<Gray, Byte> g1 = (img1.ToImage<Bgr, Byte>()).InRange(c1, c2);
+            //g1.Save("temp_2.jpg");
+            using (VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint())
+            {
+                CvInvoke.FindContours(g1, contours, null, RetrType.External, ChainApproxMethod.ChainApproxNone);
+                int count = contours.Size;
+                for (int i = 0; i < count; i++)
+                {
+                    VectorOfPoint contour = contours[i];
+                    VectorOfPoint approxContour = new VectorOfPoint();
+                    CvInvoke.ApproxPolyDP(contour, approxContour, CvInvoke.ArcLength(contour, true) * 0.05, true);
+                    if (approxContour.Size == 4)
+                    {
+                        if (CvInvoke.ContourArea(approxContour, false) > 250)
+                        {
+                            Rectangle r = CvInvoke.BoundingRectangle(approxContour);
+                            Rectangle r1 = CvInvoke.BoundingRectangle(contour);
+                            //Program.logIt(string.Format("{0}", r));
+                            //Program.logIt(string.Format("{0}", r1));
+                            retR = r1;
+                            retB = true;
+                        }
+                    }
+                }
+            }
+            return new Tuple<bool, Rectangle>(retB, retR);
+        }
+
     }
 }

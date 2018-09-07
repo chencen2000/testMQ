@@ -57,3 +57,15 @@ int h = (f1.Height - top_margin - botton_line - middle_margin) / total_row;
 [2018-08-20T09:48:50.2624982-07:00]: 0_2: {X=163,Y=869,Width=111,Height=111}
 [2018-08-20T09:48:50.2624982-07:00]: 0_3: {X=296,Y=869,Width=111,Height=111}
 [2018-08-20T09:48:50.2634970-07:00]: 0_4: {X=429,Y=869,Width=111,Height=111}
+
+
+8MP camera:
+blue on home screen:
+Bgr c1 = new Bgr(80, 20, 10)
+Bgr c2 = new Bgr(160, 100, 60)
+Image<Gray, Byte> g1 = (img1.ToImage<Bgr, Byte>()).InRange(c1, c2);
+
+2MP camera:
+Bgr c3 = new Bgr(170, 130, 70); //new Bgr(160, 50, 30);
+Bgr c4 = new Bgr(250, 230, 160); //new Bgr(250, 200, 100);
+

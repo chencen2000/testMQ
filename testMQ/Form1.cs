@@ -1,6 +1,7 @@
 ﻿using Accord.Imaging.Filters;
 using Accord.Video.DirectShow;
 using Emgu.CV;
+using Emgu.CV.CvEnum;
 using Emgu.CV.Structure;
 using System;
 using System.Collections.Generic;
@@ -52,7 +53,7 @@ namespace testMQ
             t.IsBackground = true;
             t.Start();
             // COM4
-            KeyInput.getInstance().setSerialPort("COM4");
+            KeyInput.getInstance().setSerialPort("COM8");
             KeyInput.getInstance().start();
         }
 
@@ -92,27 +93,34 @@ namespace testMQ
                     {
                         if (frame_angle == 0.0)
                         {
-                            Tuple<Bitmap, double, Rectangle> res = ImUtility.smate_rotate((Bitmap)cf.Clone());
+                            Tuple<Bitmap, double, Rectangle> res = ImUtility.smate_rotate_1((Bitmap)cf.Clone(),90.0);
                             if (res.Item1 != null)
                             {
                                 cf = res.Item1;
                                 frame_angle = res.Item2;
                                 rect = res.Item3;
+                                
                                 // locate home screen icons
                                 get_homescreen_icons(home_screen_info, 0,cf);
                             }
                         }
                         else
                         {
-                            RotateBicubic filter = new RotateBicubic(frame_angle);
-                            Bitmap src1 = filter.Apply(cf);
-                            Crop c_filter = new Crop(rect);
-                            cf = c_filter.Apply(src1);
+                            //RotateBicubic filter = new RotateBicubic(frame_angle);
+                            //Bitmap src1 = filter.Apply(cf);
+                            //Crop c_filter = new Crop(rect);
+                            //cf = c_filter.Apply(src1);
+                            Image<Bgra, Byte> i = new Image<Bgra, byte>(cf);
+                            Image<Bgra, Byte> rotated = i.Rotate(frame_angle, new Bgra(), false);
+                            Image<Bgra, Byte> copped = rotated.GetSubRect(rect);
+                            cf = copped.Bitmap;
                         }
                         pictureBox1.Invoke(new MethodInvoker(delegate
                         {
-                            current_image = cf;
-                            pictureBox1.Image = cf;
+                            //ImUtility.get_PSNR(current_image, cf);
+                            current_image = (Bitmap)cf.Clone();
+                            //Program.logIt("current image updated.");
+                            pictureBox1.Image = (Bitmap)cf.Clone();
                         }));
                         //if ((DateTime.Now - dt).TotalMilliseconds > 50)
                         //{
@@ -239,22 +247,273 @@ namespace testMQ
             frame_angle = 0.0;
         }
 
+        void close_all_apps()
+        {
+            click_home();
+            Bitmap homescreen = (Bitmap)current_image.Clone();
+            // click app switch
+            KeyInput.getInstance().sendKey(0x4d);
+            bool done = false;
+            // wait for change
+            while(!done)
+            {
+                System.Threading.Thread.Sleep(500);
+                Bitmap bmp = (Bitmap)current_image.Clone();
+                double psnr = ImUtility.get_PSNR(homescreen, bmp);
+                if (psnr > 25)
+                {
+                    // same image
+                    //done = true;
+                }
+                else
+                {
+                    done = true;
+                }
+            }
+            // app swtich
+            Rectangle r = new Rectangle(0, 0, homescreen.Width, homescreen.Height *6/ 10);
+            done = false;
+            while (!done)
+            {
+                bool found = false;
+                System.Threading.Thread.Sleep(2000);
+                Bitmap b1 = (Bitmap)current_image.Clone();
+                // click app switch
+                KeyInput.getInstance().sendKey(0x51);
+                // wait for image chage
+                Program.logIt("click select");
+                Bitmap b2 = (Bitmap)current_image.Clone();
+                do
+                {
+                    System.Threading.Thread.Sleep(500);
+                    b2 = (Bitmap)current_image.Clone();
+                } while (ImUtility.is_same_image(b2, b1));
+                Program.logIt("image ready after click select");
+                //System.Threading.Thread.Sleep(1000);
+                //b1.Save("temp_1.jpg");
+                //b2.Save("temp_2.jpg");
+                Tuple<bool, Rectangle, Bitmap> cm = ImUtility.extrac_context_menu(b1, b2);
+                //Program.logIt(string.Format("{0}: {1}", cm.Item1, cm.Item2));
+                if (cm.Item1)
+                {
+                    Program.logIt(string.Format("{0} vs {1}", cm.Item2, r));
+                    if (r.Contains(cm.Item2))
+                    {
+                        found = false;
+                        KeyInput.getInstance().sendKey(0x50);
+                        KeyInput.getInstance().sendKey(0x51);
+                    }
+                    else
+                    {
+                        found = true;
+                        KeyInput.getInstance().sendKey(0x4f);
+                        KeyInput.getInstance().sendKey(0x52);
+                        System.Threading.Thread.Sleep(2000);
+                    }
+                }
+                if (!found)
+                    done = true;
+            }
+        }
+        void test_icon_location()
+        {
+            Bitmap b = (Bitmap)current_image.Clone();
+            using (Graphics g = Graphics.FromImage(b))
+            {
+                foreach (KeyValuePair<string, object> kv in home_screen_info)
+                {
+                    System.Collections.Generic.Dictionary<string, object> page = (System.Collections.Generic.Dictionary<string, object>)kv.Value;
+                    foreach (KeyValuePair<string, object> pkv in page)
+                    {
+                        System.Collections.Generic.Dictionary<string, object> info = (System.Collections.Generic.Dictionary<string, object>)pkv.Value;
+                        if (info.ContainsKey("rectangle") && info["rectangle"].GetType()==typeof(Rectangle))
+                        {
+                            Rectangle r = (Rectangle)info["rectangle"];
+                            if (!r.IsEmpty)
+                                g.DrawRectangle(new Pen(Color.Red), r);
+                        }
+                    }
+                }
+            }
+            b.Save("temp_1.jpg");
+        }
+        void test()
+        {
+            click_home();
+            // click select to scroll right
+            Bitmap hs = (Bitmap)current_image.Clone();
+            KeyInput.getInstance().sendKey(0x51);
+            System.Threading.Thread.Sleep(2000);
+            Bitmap b1 = (Bitmap)current_image.Clone();
+            Tuple<bool, Rectangle, Bitmap> cm = ImUtility.extrac_context_menu(hs, b1);
+            if (cm.Item1)
+            {
+
+            }
+        }
         private void testToolStripMenuItem_Click(object sender, EventArgs e)
         {
             System.Threading.ThreadPool.QueueUserWorkItem(o =>
             {
-                go_to_dialer();
+                Program.logIt("test: ++");
+                //read_imei();
+                //put_device_ready();
+                //test();
+                //click_home(10*1000);                
+                close_all_apps();
+                Program.logIt("test: --");
             });
         }
-        void go_to_dialer(bool clickhome = false)
+        bool on_top_of_setting_menu(Bitmap src)
+        {
+            bool ret = false;
+            Image<Bgra, Byte> b = new Image<Bgra, Byte>(src);
+            UMat uimage = new UMat();
+            CvInvoke.CvtColor(b, uimage, ColorConversion.Bgr2Gray);
+            Image<Gray, Byte> img2 = uimage.ToImage<Gray, Byte>().Not();
+            MCvScalar m1 = new MCvScalar();
+            MCvScalar m2 = new MCvScalar();
+            CvInvoke.MeanStdDev(img2, ref m1, ref m2);
+            Image<Gray, Byte> t = img2.ThresholdBinary(new Gray(m1.V0 + m2.V0), new Gray(255));
+            Rectangle r = new Rectangle(0, 50, img2.Width, 40);
+            Image<Gray, Byte> roi = t.GetSubRect(r);
+            string s = ocrEng.ocr_easy(roi.Bitmap);
+            if (!string.IsNullOrEmpty(s) )
+            {
+                s = s.Trim();
+                if( string.Compare(s, "Settings", true) == 0)
+                    ret = true;
+            }
+            return ret;
+        }
+        void go_to_top_of_setting()
+        {
+            bool done = false;
+            while (!done)
+            {
+                System.Threading.Thread.Sleep(3000);
+                if (on_top_of_setting_menu(current_image))
+                {
+                    done=true;
+                }
+                else
+                {
+                    KeyInput.getInstance().sendKey(0x52);
+                }
+            }
+        }
+        void put_device_ready()
+        {
+            // 1. go to settings and go back to top level menu of setting
+            // 2. go to app switch, and close all apps
+            //
+            go_to_settings(true, true);
+            //go_to_top_of_setting();
+        }
+        void click_home(int wait = 5000)
+        {
+            DateTime _start = DateTime.Now;
+            Program.logIt(string.Format("click_home: ++ {0}", _start.ToString("o")));
+            Bitmap b1 = (Bitmap)current_image.Clone();
+            //b1.Save("temp_0.jpg");
+            KeyInput.getInstance().sendKey(0x4a);
+            //System.Threading.Thread.Sleep(1000);
+            int i = 1;
+            while ((DateTime.Now - _start).TotalMilliseconds < wait)
+            {
+                System.Threading.Thread.Sleep(500);
+                try
+                {
+                    Bitmap b2 = (Bitmap)current_image.Clone();
+                    double psnr = ImUtility.get_PSNR(b2, b1);
+                    if (psnr > 25.0) // treat as same image
+                        continue;
+                    //b2.Save(string.Format("temp_{0}.jpg", i++));
+                    Tuple<bool, Rectangle, Bitmap> r = ImUtility.extrac_blue_block(b2, new Size(100, 100));
+                    if (r.Item1)
+                    {
+                        Program.logIt(string.Format("Found blue Block: {0}", r.Item2));
+                        Rectangle rl = new Rectangle(0, 0, b2.Width / 2, b2.Height / 2);
+                        //r.Item3.Save(string.Format("temp_{0}.jpg", i++));
+                        if (rl.Contains(r.Item2))
+                            break;
+                        //break;
+                    }
+                    b1 = b2;
+                }
+                catch (Exception) { }
+            }
+            Program.logIt(string.Format("click_home: -- {0}", DateTime.Now.ToString("o")));
+        }
+        void read_imei()
+        {
+            go_to_dialer(true,true);
+            // wait for dialer;
+            System.Threading.Thread.Sleep(2500);
+            KeyInput.getInstance().sendKey(0x50);
+            KeyInput.getInstance().sendKey(0x50);
+            KeyInput.getInstance().sendKey(0x52);
+            System.Threading.Thread.Sleep(2000);
+            // check diarler screen
+            // click *#06#
+            int i = 10;
+            // *
+            for (int j = 0; j < i; j++)
+                KeyInput.getInstance().sendKey(0x4f);
+            KeyInput.getInstance().sendKey(0x52);
+            System.Threading.Thread.Sleep(1000);
+            // #
+            i = 11;
+            for (int j = 0; j < i; j++)
+                KeyInput.getInstance().sendKey(0x4f);
+            KeyInput.getInstance().sendKey(0x52);
+            System.Threading.Thread.Sleep(1000);
+            // 0
+            i = 10;
+            for (int j = 0; j < i; j++)
+                KeyInput.getInstance().sendKey(0x4f);
+            KeyInput.getInstance().sendKey(0x52);
+            System.Threading.Thread.Sleep(1000);
+            // 6
+            i = 5;
+            for (int j = 0; j < i; j++)
+                KeyInput.getInstance().sendKey(0x4f);
+            KeyInput.getInstance().sendKey(0x52);
+            System.Threading.Thread.Sleep(1000);
+            // #
+            i = 11;
+            for (int j = 0; j < i; j++)
+                KeyInput.getInstance().sendKey(0x4f);
+            KeyInput.getInstance().sendKey(0x52);
+            //System.Threading.Thread.Sleep(1000);
+            // imei will display on the screen 
+            System.Threading.Thread.Sleep(2000);
+            Image<Bgra, Byte> b = new Image<Bgra, Byte>(current_image);
+            UMat uimage = new UMat();
+            CvInvoke.CvtColor(b, uimage, ColorConversion.Bgra2Gray);
+            MCvScalar m1 = new MCvScalar();
+            MCvScalar m2 = new MCvScalar();
+            CvInvoke.MeanStdDev(uimage, ref m1, ref m2);
+            Image<Gray, Byte> t = uimage.ToImage<Gray, Byte>().ThresholdBinary(new Gray(m1.V0 + m2.V0), new Gray(255));
+            Rectangle r = new Rectangle(0, t.Height / 2 - 200, t.Width, 200);
+            Image<Gray, Byte> roi = t.GetSubRect(r);
+            string s = ocrEng.ocr_easy(roi.Bitmap);
+            if(!string.IsNullOrEmpty(s))
+            {
+                Program.logIt(string.Format("IMEI={0}", s));
+            }
+            KeyInput.getInstance().sendKey(0x52);
+            System.Threading.Thread.Sleep(1000);
+            KeyInput.getInstance().sendKey(0x4a);
+        }
+        void go_to_dialer(bool tap=false, bool clickhome = false)
         {
             Tuple<bool, string, System.Collections.Generic.Dictionary<string, object>> ret = find_icon_by_label("phone");
             if (ret.Item1)
             {
                 if (clickhome)
                 {
-                    KeyInput.getInstance().sendKey(0x4a);
-                    System.Threading.Thread.Sleep(2500);
+                    click_home();
                 }
                 int page = -1;
                 if (Int32.TryParse(ret.Item2, out page))
@@ -273,19 +532,43 @@ namespace testMQ
                             KeyInput.getInstance().sendKey(k);
                             System.Threading.Thread.Sleep(100);
                         }
+                        if (tap)
+                        {
+                            KeyInput.getInstance().sendKey(0x52);
+                            System.Threading.Thread.Sleep(2000);
+                        }
                     }
                 }
             }
+            else
+            {
+                if (clickhome)
+                {
+                    click_home();
+                }
+                KeyInput.getInstance().sendKey(0x50);
+                System.Threading.Thread.Sleep(100);
+                KeyInput.getInstance().sendKey(0x50);
+                System.Threading.Thread.Sleep(100);
+                KeyInput.getInstance().sendKey(0x50);
+                System.Threading.Thread.Sleep(100);
+                KeyInput.getInstance().sendKey(0x50);
+                System.Threading.Thread.Sleep(100);
+                if (tap)
+                {
+                    KeyInput.getInstance().sendKey(0x52);
+                    System.Threading.Thread.Sleep(2000);
+                }
+            }
         }
-        void go_to_settings(bool clickhome = false)
+        void go_to_settings(bool tap=false, bool clickhome = false)
         {
             Tuple<bool, string, System.Collections.Generic.Dictionary<string, object>> ret = find_icon_by_label("settings");
             if (ret.Item1)
             {
                 if (clickhome)
                 {
-                    KeyInput.getInstance().sendKey(0x4a);
-                    System.Threading.Thread.Sleep(2500);
+                    click_home();
                 }
                 int page = -1;
                 if (Int32.TryParse(ret.Item2, out page))
@@ -303,6 +586,11 @@ namespace testMQ
                         {
                             KeyInput.getInstance().sendKey(k);
                             System.Threading.Thread.Sleep(100);
+                        }
+                        if (tap)
+                        {
+                            KeyInput.getInstance().sendKey(0x52);
+                            System.Threading.Thread.Sleep(3000);
                         }
                     }
                 }
@@ -581,6 +869,14 @@ namespace testMQ
                     break;
             }
             return new Tuple<bool, string, Dictionary<string, object>>(retB,retPage,retD);
+        }
+
+        private void readIMEIToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            System.Threading.ThreadPool.QueueUserWorkItem(o =>
+            {
+                read_imei();
+            });
         }
     }
 }

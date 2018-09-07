@@ -19,128 +19,435 @@ using System.Text;
 using System.Windows.Forms;
 using Emgu.CV;
 using Emgu.CV.Structure;
+using Emgu.CV.CvEnum;
+using Emgu.CV.Util;
+using Emgu.CV.XFeatures2D;
+using System.Diagnostics;
+using Emgu.CV.Features2D;
+using Emgu.CV.ML;
+using Emgu.CV.Flann;
+using Emgu.CV.Text;
 
 namespace testMQ
 {
+    public static class DrawMatches
+    {
+        public static void FindMatch(Mat modelImage, Mat observedImage, out long matchTime, out VectorOfKeyPoint modelKeyPoints, out VectorOfKeyPoint observedKeyPoints, VectorOfVectorOfDMatch matches, out Mat mask, out Mat homography)
+        {
+            int k = 2;
+            double uniquenessThreshold = 0.8;
+            double hessianThresh = 300;
+
+            Stopwatch watch;
+            homography = null;
+
+            modelKeyPoints = new VectorOfKeyPoint();
+            observedKeyPoints = new VectorOfKeyPoint();
+
+            {
+                //using (UMat uModelImage = modelImage.ToUMat(AccessType.Read))
+                //using (UMat uObservedImage = observedImage.ToUMat(AccessType.Read))
+                //UMat uModelImage = new UMat();
+                //UMat uObservedImage = new UMat();
+                //CvInvoke.convert
+                {
+                    Brisk surfCPU = new Brisk();
+                    //SURF surfCPU = new SURF(hessianThresh);
+                    //extract features from the object image
+                    UMat modelDescriptors = new UMat();
+                    surfCPU.DetectAndCompute(modelImage, null, modelKeyPoints, modelDescriptors, false);
+
+                    watch = Stopwatch.StartNew();
+
+                    // extract features from the observed image
+                    UMat observedDescriptors = new UMat();
+                    surfCPU.DetectAndCompute(observedImage, null, observedKeyPoints, observedDescriptors, false);
+                    BFMatcher matcher = new BFMatcher(DistanceType.L2);
+                    matcher.Add(modelDescriptors);
+
+                    matcher.KnnMatch(observedDescriptors, matches, k, null);
+                    mask = new Mat(matches.Size, 1, DepthType.Cv8U, 1);
+                    mask.SetTo(new MCvScalar(255));
+                    Features2DToolbox.VoteForUniqueness(matches, uniquenessThreshold, mask);
+
+                    int nonZeroCount = CvInvoke.CountNonZero(mask);
+                    if (nonZeroCount >= 4)
+                    {
+                        nonZeroCount = Features2DToolbox.VoteForSizeAndOrientation(modelKeyPoints, observedKeyPoints,
+                           matches, mask, 1.5, 20);
+                        if (nonZeroCount >= 4)
+                            homography = Features2DToolbox.GetHomographyMatrixFromMatchedFeatures(modelKeyPoints,
+                               observedKeyPoints, matches, mask, 2);
+                    }
+
+                    watch.Stop();
+                }
+            }
+            matchTime = watch.ElapsedMilliseconds;
+        }
+
+        /// <summary>
+        /// Draw the model image and observed image, the matched features and homography projection.
+        /// </summary>
+        /// <param name="modelImage">The model image</param>
+        /// <param name="observedImage">The observed image</param>
+        /// <param name="matchTime">The output total time for computing the homography matrix.</param>
+        /// <returns>The model image and observed image, the matched features and homography projection.</returns>
+        public static Mat Draw(Mat modelImage, Mat observedImage, out long matchTime)
+        {
+            Mat homography;
+            VectorOfKeyPoint modelKeyPoints;
+            VectorOfKeyPoint observedKeyPoints;
+            using (VectorOfVectorOfDMatch matches = new VectorOfVectorOfDMatch())
+            {
+                Mat mask;
+                FindMatch(modelImage, observedImage, out matchTime, out modelKeyPoints, out observedKeyPoints, matches,
+                   out mask, out homography);
+
+                //Draw the matched keypoints
+                Mat result = new Mat();
+                Features2DToolbox.DrawMatches(modelImage, modelKeyPoints, observedImage, observedKeyPoints,
+                   matches, result, new MCvScalar(255, 255, 255), new MCvScalar(255, 255, 255), mask);
+
+                #region draw the projected region on the image
+
+                if (homography != null)
+                {
+                    //draw a rectangle along the projected model
+                    Rectangle rect = new Rectangle(System.Drawing.Point.Empty, modelImage.Size);
+                    PointF[] pts = new PointF[]
+                    {
+                  new PointF(rect.Left, rect.Bottom),
+                  new PointF(rect.Right, rect.Bottom),
+                  new PointF(rect.Right, rect.Top),
+                  new PointF(rect.Left, rect.Top)
+                    };
+                    pts = CvInvoke.PerspectiveTransform(pts, homography);
+
+                    System.Drawing.Point[] points = Array.ConvertAll<PointF, System.Drawing.Point>(pts, System.Drawing.Point.Round);
+                    using (VectorOfPoint vp = new VectorOfPoint(points))
+                    {
+                        CvInvoke.Polylines(result, vp, true, new MCvScalar(255, 0, 0, 255), 5);
+                    }
+
+                }
+
+                #endregion
+
+                return result;
+
+            }
+        }
+    }
+
     class Test
     {
         static void Main()
         {
             Program.logIt("Test Starts.");
+            //test_text();
+            //train_svm();
+            //test_svm();
+            //img.ToImage<Bgra, byte>().Rotate(-2.5, new Bgra(0, 0, 0, 255), false).Save("temp_1.jpg");
+            //camera_init();
+            //test_blue_color();
+            //search_color();
+            //Tuple<bool, Rectangle>  r= extra_blue_block_in_settings(new Bitmap(@"C:\test\setting_01.jpg"));
+            //getMSSIM();
+            test_1();
             //test_haar_face();
             //ui_test();
             //test3();
+            //test_match();
             //test_ml();
             //test_ml_SMO();
             //extra_icon_from_home_screen_v2();
             //var jss = new System.Web.Script.Serialization.JavaScriptSerializer();
             //System.Collections.Generic.Dictionary<string, object> d = jss.Deserialize<System.Collections.Generic.Dictionary<string, object>>(System.IO.File.ReadAllText("HomeScreenLayout.json"));
+            //test_base64();
+        }
+        static void test_text()
+        {
+            Mat img = CvInvoke.Imread(@"C:\test\menu_item.jpg", ImreadModes.Grayscale);
+            Mat channels = new Mat();
+            //Emgu.CV.Text.TextInvoke.ComputeNMChannels(img, channels);
+            ERFilterNM1 f1 = new ERFilterNM1(@"C:\Users\qa\PycharmProjects\test\data\trained_classifierNM1.xml");
+            VectorOfERStat regions = new VectorOfERStat();
+            f1.Run(img, regions);
+            ERFilterNM2 f2 = new ERFilterNM2(@"C:\Users\qa\PycharmProjects\test\data\trained_classifierNM2.xml");
+            f2.Run(img, regions);
+            int n = regions.Size;
+            for(int i = 0; i < n; i++)
+            {
+                MCvERStat ers = regions[i];
+            }
+        }
+        static void test_base64()
+        {
+            var jss = new System.Web.Script.Serialization.JavaScriptSerializer();
+            System.Collections.Generic.Dictionary<string, object> dict = jss.Deserialize<System.Collections.Generic.Dictionary<string, object>>(System.IO.File.ReadAllText(@"C:\projects\local\radi\iosTester-master-580aa36cb4c56ef07a08e839b0c077671a5fa634\scripts\data.json"));
+            var data = System.Convert.FromBase64String(dict["recording"] as string);
+            System.IO.File.WriteAllBytes("test.wav", data);
+        }
+        public static Tuple<bool, Rectangle, Bitmap> extrac_blue_block(Bitmap src, Size minS = default(Size))
+        {
+            bool retB = false;
+            Rectangle retR = Rectangle.Empty;
+            Bitmap retImg = null;
+            Image<Bgr, Byte> img = new Image<Bgr, byte>(src);
+            Mat img1 = new Mat();
+            CvInvoke.GaussianBlur(img, img1, new Size(11, 11), 0);
+            img1.Save("temp_1.jpg");
+
+            Bgr c1 = new Bgr(160, 50, 10); //new Bgr(160, 50, 30);
+            Bgr c2 = new Bgr(250, 220, 100); //new Bgr(250, 200, 100);
+            Image<Gray, Byte> g1 = (img1.ToImage<Bgr, Byte>()).InRange(c1, c2);
+            g1.Save("temp_2.jpg");
+            Rectangle maxR = new Rectangle(0, 0, minS.Width, minS.Height);
+            using (VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint())
+            {
+                CvInvoke.FindContours(g1, contours, null, RetrType.External, ChainApproxMethod.ChainApproxNone);
+                int count = contours.Size;
+                for (int i = 0; i < count; i++)
+                {
+                    Rectangle r = CvInvoke.BoundingRectangle(contours[i]);
+                    if (r.Height * r.Width > maxR.Height * maxR.Width)
+                    {
+                        maxR = r;
+                        retB = true;
+                    }
+                }
+            }
+            if (retB)
+            {
+                retB = true;
+                retR = maxR;
+                retImg = img.GetSubRect(retR).Bitmap;
+            }
+            return new Tuple<bool, Rectangle, Bitmap>(retB, retR, retImg);
+        }
+        static void camera_init()
+        {
+            Mat img = CvInvoke.Imread(@"C:\test\save_00.jpg", ImreadModes.AnyColor);
+            Tuple< bool, Rectangle, Bitmap> res = ImUtility.extrac_blue_block(img.Bitmap);
+            if (res.Item3 != null && res.Item1)
+            {
+                res.Item3.Save("temp_1.jpg");
+            }
+
         }
         static void test3()
         {
-            Serializer.Load("test_svm.bin", out object load_svm);
-            Serializer.Load("test_bow.bin", out object load_bow);
-            //List<Bitmap> test = new List<Bitmap>();
-            foreach (string s in System.IO.Directory.GetFiles(@"C:\test\iphone_icon"))
+            Bitmap b1 = new Bitmap(@"C:\test\test_1\temp_1.jpg");
+            Bitmap b2 = new Bitmap(@"C:\test\test_1\temp_2.jpg");
+            Bitmap sl = new Bitmap(@"C:\test\scroll_left.jpg");
+            Image<Gray, Byte> slicon = new Image<Gray, byte>(sl);
+            slicon = slicon.Not();
+            slicon.Save("temp_1.jpg");
+            Tuple<bool, Rectangle, Bitmap> cm = ImUtility.extrac_context_menu(b1, b2);
+            if (cm.Item1 && cm.Item3 != null)
             {
-                Bitmap b = new Bitmap(s);
-                //test.Add(b);
-                double[] fs = (load_bow as ITransform<Bitmap, double[]>).Transform(b);
-                bool o1 = (load_svm as Accord.MachineLearning.VectorMachines.SupportVectorMachine<Accord.Statistics.Kernels.Linear>).Decide(fs);
-                double s1 = (load_svm as Accord.MachineLearning.VectorMachines.SupportVectorMachine<Accord.Statistics.Kernels.Linear>).Score(fs);
-                double[] p1 = (load_svm as Accord.MachineLearning.VectorMachines.SupportVectorMachine<Accord.Statistics.Kernels.Linear>).Probabilities(fs);
-                Program.logIt(string.Format("{0}: {1} score={2}, p1={3}, p2={4}",
-                    System.IO.Path.GetFileName(s), o1, s1, p1[0], p1[1]));
+                cm.Item3.Save("temp_1.jpg");
+                Image<Gray, Byte> uimage = new Image<Gray, Byte>(cm.Item3);
+                UMat pyrDown = new UMat();
+                //CvInvoke.PyrDown(uimage, pyrDown);
+                //CvInvoke.PyrUp(pyrDown, uimage);
+                CvInvoke.Threshold(uimage, pyrDown, 0, 255, ThresholdType.Binary | ThresholdType.Otsu);
+                uimage = pyrDown.ToImage<Gray, Byte>();
+                uimage.Save("temp_1.jpg");
+                double cannyThreshold = 180.0;
+                double cannyThresholdLinking = 120.0;
+                UMat cannyEdges = new UMat();
+                CvInvoke.Canny(uimage, cannyEdges, cannyThreshold, cannyThresholdLinking);
+                cannyEdges.Save("temp_1.jpg");
+                using (VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint())
+                {
+                    CvInvoke.FindContours(cannyEdges, contours, null, RetrType.External, ChainApproxMethod.ChainApproxNone);
+                    int count = contours.Size;
+                    for (int i = 0; i < count; i++)
+                    {
+                        VectorOfPoint contour = contours[i];
+                        VectorOfPoint approxContour = new VectorOfPoint();
+                        double al = CvInvoke.ArcLength(contour, true);
+                        CvInvoke.ApproxPolyDP(contour, approxContour, al * 0.05, true);
+                        if (approxContour.Size == 4)
+                        {
+                            double a1 = CvInvoke.ContourArea(contours[i], false);
+                            if (a1 > 100.0)
+                            {
+                                Rectangle r = CvInvoke.BoundingRectangle(contours[i]);
+                                Program.logIt(String.Format("{0}", r));
+                                using (Graphics g = Graphics.FromImage(cm.Item3))
+                                {
+                                    g.DrawRectangle(new Pen(Color.White), r);
+                                }
+                                if (r.Width == r.Height)
+                                {
+                                    uimage.GetSubRect(r).Save(string.Format("temp_{0}.jpg", i));
+                                }
+                                //Mat m = new Mat();
+                                //CvInvoke.MatchTemplate(slicon, uimage.GetSubRect(r), m, TemplateMatchingType.CcorrNormed);
+                                //double min=0;
+                                //double max = 0;
+                                //System.Drawing.Point minp = new System.Drawing.Point();
+                                //System.Drawing.Point maxp = new System.Drawing.Point();
+                                //CvInvoke.MinMaxLoc(m, ref min, ref max, ref minp, ref maxp);
+                            }
+                        }
+                    }
+                }
+                cm.Item3.Save("temp_2.jpg");
             }
-            //var surfBow = BagOfVisualWords.Create(numberOfWords: 500);
-            //IBagOfWords<Bitmap> bow = surfBow.Learn(test.ToArray());
+        }
+        static void test_svm()
+        {
+            FileStorage fs = new FileStorage("test.yaml", FileStorage.Mode.Read);
+            FileNode n = fs["voca"];
+            Mat voca = new Mat();
+            n.ReadMat(voca);
+
+            SURF surf = new SURF(400);
+            BFMatcher matcher = new BFMatcher(DistanceType.L2);
+            BOWImgDescriptorExtractor bowDex = new BOWImgDescriptorExtractor(surf, matcher);
+            bowDex.SetVocabulary(voca);
+
+            SVM svm = new SVM();
+            //FileStorage fs1 = new FileStorage("svm.yaml", FileStorage.Mode.Read);
+            svm.Read(fs.GetRoot());
+
+            foreach (string s in System.IO.Directory.GetFiles(@"C:\projects\local\testMQ\testMQ\bin\Debug\icons"))
+            {
+                Image<Bgr, Byte> test_img = new Image<Bgr, byte>(s);
+                //Image<Bgr, Byte> test_img = new Image<Bgr, byte>(@"C:\projects\local\testMQ\testMQ\bin\Debug\mail_samples\email_icon_t.jpg");
+                //Image<Bgr, Byte> test_img = new Image<Bgr, byte>(@"C:\projects\local\testMQ\testMQ\bin\Debug\phone_icons\icon_2.jpg");
+                //Image<Bgr, Byte> test_img = new Image<Bgr, byte>(@"C:\test\35928233-email-icon-on-blue-background-clean-vector.jpg");
+                Mat ii = new Mat();
+                CvInvoke.CvtColor(test_img, ii, ColorConversion.Bgr2Gray);
+                MKeyPoint[] kp = surf.Detect(ii);
+                Mat desc = new Mat();
+                bowDex.Compute(ii, new VectorOfKeyPoint(kp), desc);
+                float r = svm.Predict(desc);
+                Program.logIt(string.Format("{0}={1}", s, r));
+            }
 
         }
-        static void test2()
+        static void train_svm()
         {
-            foreach (string s in System.IO.Directory.GetFiles("mail_samples"))
-            {
-                Bitmap b = new Bitmap(s);//ImageDecoder.DecodeFromFile(s);
-                //samples.Add(f1);
-            }
-            Bitmap f1 = new Bitmap(@"icons\temp_0x2.jpg");
-            var surf = new SpeededUpRobustFeaturesDetector(threshold: 0.0002f, octaves: 5, initial: 2);
-            var desc = surf.Transform(f1);
-            List<double> fs = new List<double>();
-            foreach(var v in desc)
-            {
-                foreach (var v1 in v.Descriptor)
-                    fs.Add(v1);
-            }
-        }
-        static void test()
-        {
-            Accord.Math.Random.Generator.Seed = 0;
+            int n_samples = 0;
+            SURF surf = new SURF(400);
             List<Bitmap> samples = new List<Bitmap>();
             List<Tuple<Bitmap, int>> data = new List<Tuple<Bitmap, int>>();
+            /*
             foreach (string s in System.IO.Directory.GetFiles("mail_samples"))
             {
                 Bitmap f1 = new Bitmap(s);//ImageDecoder.DecodeFromFile(s);
-                //samples.Add(f1);
                 data.Add(new Tuple<Bitmap, int>(f1, +1));
             }
             foreach (string s in System.IO.Directory.GetFiles("phone_icons"))
             {
                 Bitmap f1 = new Bitmap(s); //ImageDecoder.DecodeFromFile(s);
-                //samples.Add(f1);
                 data.Add(new Tuple<Bitmap, int>(f1, -1));
             }
-            var surfBow = BagOfVisualWords.Create(numberOfWords: 500);
-            Bitmap[] bmps = new Bitmap[data.Count];
-            for (int i = 0; i < bmps.Length; i++)
-                bmps[i] = data[i].Item1;
-            //bow.Learn(samples.ToArray());
-            IBagOfWords<Bitmap> bow = surfBow.Learn(bmps);
-            double[][] features = (bow as ITransform<Bitmap, double[]>).Transform(bmps);
-            int[] labels = new int[data.Count];
-            for(int i=0;i<labels.Length;i++)
+            */
+            foreach (string s in System.IO.Directory.GetFiles(@"C:\test\iphone_icon"))
             {
-                labels[i] = data[i].Item2;
+                Bitmap f1 = new Bitmap(s);//ImageDecoder.DecodeFromFile(s);
+                if (string.Compare(System.IO.Path.GetFileNameWithoutExtension(s), "temp_1") == 0 ||
+                    string.Compare(System.IO.Path.GetFileNameWithoutExtension(s), "scoll_selected_icon") == 0
+                    )
+                    data.Add(new Tuple<Bitmap, int>(f1, +1));
+                else
+                    data.Add(new Tuple<Bitmap, int>(f1, 0));
             }
-            var teacher = new SequentialMinimalOptimization<Linear>()
+
+            n_samples = data.Count;
+
+            // computr bow 
+            Mat m = new Mat();
+            foreach (Tuple<Bitmap, int> v in data)
             {
-                Complexity = 10000 // make a hard margin SVM
-            };
-            var svm = teacher.Learn(features, labels);
-            bool[] output = svm.Decide(features);
+                Image<Bgr, Byte> i = new Image<Bgr, byte>(v.Item1);
+                Mat ii = new Mat();
+                CvInvoke.CvtColor(i, ii, ColorConversion.Bgr2Gray);
+                MKeyPoint[] kp = surf.Detect(ii);
+                Mat desc = new Mat();
+                surf.Compute(ii, new VectorOfKeyPoint(kp), desc);
+                m.PushBack(desc);
+            }
+            // Create the vocabulary with KMeans.
+            MCvTermCriteria tc = new MCvTermCriteria(100, 0.00001);
+            BOWKMeansTrainer bowTrainer = new BOWKMeansTrainer(16, tc, 3, KMeansInitType.PPCenters);
+            bowTrainer.Add(m);
+            Mat voca = new Mat();
+            bowTrainer.Cluster(voca);
+            //
+            BFMatcher matcher = new BFMatcher(DistanceType.L2);
+            BOWImgDescriptorExtractor bowDex = new BOWImgDescriptorExtractor(surf, matcher);
+            bowDex.SetVocabulary(voca);
 
-            Serializer.Save(obj: bow, path: "test_bow.bin");
-            Serializer.Save(obj: svm, path: "test_svm.bin");
+            // 
+            Mat tDesc = new Mat();
+            //Matrix<int> tLabel = new Matrix<int>(1, n_samples);
+            Matrix<int> tLabel = new Matrix<int>(n_samples, 1);
+            //foreach (Tuple<Bitmap, int> v in data)
+            for (int j = 0; j < data.Count; j++)
+            {
+                Image<Bgr, Byte> i = new Image<Bgr, byte>(data[j].Item1);
+                Mat ii = new Mat();
+                CvInvoke.CvtColor(i, ii, ColorConversion.Bgr2Gray);
+                MKeyPoint[] kp = surf.Detect(ii);
+                Mat desc = new Mat();
+                bowDex.Compute(ii, new VectorOfKeyPoint(kp), desc);
+                tDesc.PushBack(desc);
+                //tLabel[0, j] = data[j].Item2;
+                tLabel[j, 0] = data[j].Item2;
+            }
+            //
+            //SVM model = new SVM();
+            //model.SetKernel(Emgu.CV.ML.SVM.SvmKernelType.Linear);
+            //model.Type = SVM.SvmType.CSvc;
+            //model.C = 1;
+            //model.TermCriteria = new MCvTermCriteria(100, 0.00001);
 
-            Serializer.Load("test_svm.bin", out object load_svm);
+            SVM svm = new SVM();
+            svm.C = 312.5;
+            svm.Gamma = 0.50625000000000009;
+            svm.SetKernel(SVM.SvmKernelType.Rbf);
+            svm.Type = SVM.SvmType.CSvc;
+            svm.Nu = 0.5;
 
-            // test folder "icons\*.jpg"
-            //Bitmap[] test = new Bitmap[]
+            TrainData td = new TrainData(tDesc, Emgu.CV.ML.MlEnum.DataLayoutType.RowSample, tLabel);
+            bool tained = svm.TrainAuto(td);
+
+            using (FileStorage fs = new FileStorage("voca.yaml", FileStorage.Mode.Write))
+            {
+                svm.Write(fs);
+                fs.Write(voca, "voca");
+            }
+            //using (FileStorage fs = new FileStorage("svm.yaml", FileStorage.Mode.Write))
             //{
-            //    new Bitmap(@"C:\Users\qa\Desktop\picture\ios-7-app-icon-template_88183.png"),//ImageDecoder.DecodeFromFile("temp_1x1.jpg"),
-            //    new Bitmap(@"C:\Users\qa\Desktop\picture\test_mail_icon.jpg"),//ImageDecoder.DecodeFromFile("temp_1x2.jpg"),
-            //    new Bitmap(@"C:\Users\qa\Desktop\picture\iphone_icon\email_icon_t.jpg"),
-            //};
-            List<Bitmap> test = new List<Bitmap>();
-            foreach (string s in System.IO.Directory.GetFiles("icons"))
+            //    svm.Write(fs);
+            //}
+            //svm.Save("svm.yaml");
+            // test
             {
-                Bitmap b = new Bitmap(s);
-                test.Add(b);
-            }
-            double[][] fs = (bow as ITransform<Bitmap, double[]>).Transform(test.ToArray());
-            output = svm.Decide(fs);
-            double[] score = svm.Score(fs);
-            double[][] prob = svm.Probabilities(fs);
+                //Image<Bgr, Byte> test_img = new Image<Bgr, byte>(@"C:\test\scroll_left.jpg");
+                Image<Bgr, Byte> test_img = new Image<Bgr, byte>(@"C:\test\iphone_icon\temp_1.jpg");
+                //Image<Bgr, Byte> test_img = new Image<Bgr, byte>(@"C:\projects\local\testMQ\testMQ\bin\Debug\phone_icons\icon_2.jpg");
+                //Image<Bgr, Byte> test_img = new Image<Bgr, byte>(@"C:\test\35928233-email-icon-on-blue-background-clean-vector.jpg");
+                Mat ii = new Mat();
+                CvInvoke.CvtColor(test_img, ii, ColorConversion.Bgr2Gray);
+                MKeyPoint[] kp = surf.Detect(ii);
+                Mat desc = new Mat();
+                bowDex.Compute(ii, new VectorOfKeyPoint(kp), desc);
+                float r = svm.Predict(desc);
 
-            bool[] o1 = (load_svm as Accord.MachineLearning.VectorMachines.SupportVectorMachine<Accord.Statistics.Kernels.Linear>).Decide(fs);
-            double[] s1 = (load_svm as Accord.MachineLearning.VectorMachines.SupportVectorMachine<Accord.Statistics.Kernels.Linear>).Score(fs);
-            double[][] p1 = (load_svm as Accord.MachineLearning.VectorMachines.SupportVectorMachine<Accord.Statistics.Kernels.Linear>).Probabilities(fs);
-            ImageBox.Show(test[1]).Hold();
+            }
         }
         static void extra_icon_from_home_screen_v2()
         {
             Bitmap f1 = ImageDecoder.DecodeFromFile(@"C:\test\save_00.jpg");
-            int top_margin = (int) (0.026 * f1.Height); // 26;
+            int top_margin = (int)(0.026 * f1.Height); // 26;
             int left_margin = (int)(0.05 * f1.Width); //30;
             int middle_margin = (int)(0.05 * f1.Height); //50;
             int botton_line = (int)(0.13 * f1.Height); //130;
@@ -210,7 +517,7 @@ namespace testMQ
             Bitmap f1 = ImageDecoder.DecodeFromFile(@"C:\Users\qa\Desktop\picture\save_10.jpg");
             Program.logIt(string.Format("w={0}, h={0}", f1.Width, f1.Height));
             ImageStatistics stat = new ImageStatistics(f1);
-            GaussianBlur gb = new GaussianBlur(2,10);
+            GaussianBlur gb = new GaussianBlur(2, 10);
             Bitmap src = gb.Apply(f1);
             src.Save("temp_2.jpg");
             ColorFiltering cf = new ColorFiltering();
@@ -241,7 +548,7 @@ namespace testMQ
             {
                 g.DrawRectangle(new Pen(Color.Yellow), roi.Rectangle);
                 List<System.Drawing.Point> sp = new List<System.Drawing.Point>();
-                foreach(var p in corners)
+                foreach (var p in corners)
                 {
                     sp.Add(new System.Drawing.Point(p.X, p.Y));
                 }
@@ -262,6 +569,12 @@ namespace testMQ
         }
         static void test_1()
         {
+            Mat img0 = CvInvoke.Imread(@"C:\test\save_00.jpg");
+            Mat img1 = CvInvoke.Imread(@"C:\test\save_01.jpg");
+            Mat img2 = CvInvoke.Imread(@"C:\test\save_02.jpg");
+            Mat img3 = CvInvoke.Imread(@"C:\test\save_03.jpg");
+            bool is_same = ImUtility.is_same_image(img0.Bitmap, img1.Bitmap);
+
         }
         static void test_ml_SMO()
         {
@@ -274,7 +587,7 @@ namespace testMQ
                                 new double[]{ 8.12086950231481, 3, 11.8416794313788 },
                                 new double[]{ 4.01413675864101, 1, 13.026857481124 },
             };
-            int[] labels = { -1, +1, +1, +1, +1 ,+1};
+            int[] labels = { -1, +1, +1, +1, +1, +1 };
             var teacher = new SequentialMinimalOptimization<Linear>()
             {
                 Complexity = 10000 // make a hard margin SVM
@@ -413,13 +726,13 @@ namespace testMQ
             var points1 = surf.Transform(img1);
             var points2 = surf.Transform(img2);
             var matcher = new KNearestNeighborMatching(4);
-            Accord.IntPoint [][] matches = matcher.Match(points1, points2);
+            Accord.IntPoint[][] matches = matcher.Match(points1, points2);
 
             Concatenate concat = new Concatenate(img1);
             Bitmap img3 = concat.Apply(img2);
             PairsMarker pairs = new PairsMarker(
                     matches[0], // Add image1's width to the X points
-                    // to show the markings correctly
+                                // to show the markings correctly
                     matches[1].Apply(pp => new IntPoint(pp.X + img1.Width, pp.Y)));
             pairs.ApplyInPlace(img3);
 
@@ -445,68 +758,139 @@ namespace testMQ
             foreach (var v in rects)
             {
                 System.Drawing.Point p = new System.Drawing.Point(v.X + v.Width / 2, v.Y + v.Height / 2);
-                foreach(KeyValuePair<string,object> kv in locations)
+                foreach (KeyValuePair<string, object> kv in locations)
                 {
-                    if(((Rectangle)kv.Value).Contains(p))
+                    if (((Rectangle)kv.Value).Contains(p))
                     {
                         Program.logIt(String.Format("Found: in {0} and {1}", kv.Value, kv.Key));
                     }
                 }
             }
         }
-
-        static void extrac_blue_block(Bitmap src)
+        static Tuple<bool, Rectangle> extra_blue_block_in_settings(Bitmap src)
         {
-            try
+            bool retB = false;
+            Rectangle retR = Rectangle.Empty;
+            Image<Bgr, Byte> b1 = new Image<Bgr, Byte>(src);
+            Mat img1 = new Mat();
+            CvInvoke.GaussianBlur(b1, img1, new Size(7, 7), 0);
+            //img1.Save("temp_1.jpg");
+            Bgr c1 = new Bgr(160, 150, 70);
+            Bgr c2 = new Bgr(240, 230, 150);
+            Image<Gray, Byte> g1 = (img1.ToImage<Bgr, Byte>()).InRange(c1, c2);
+            //g1.Save("temp_2.jpg");
+            using (VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint())
             {
-                int w = src.Width / 3;
-                int h = src.Height / 3;
-                Crop c = new Crop(new Rectangle(0, 0, w, h));
-                Bitmap b = c.Apply(src);
-                GaussianBlur gb_filter = new GaussianBlur(4, 25);
-                Bitmap src1 = gb_filter.Apply(b);
-                src1.Save("temp_1.jpg");
-                EuclideanColorFiltering ec_filter = new EuclideanColorFiltering();
-                ec_filter.CenterColor= new RGB(Color.SlateBlue);
-                ec_filter.Radius = 80;
-                Bitmap img = ec_filter.Apply(src1);
-                img.Save("temp_2.jpg");
-
-                //ImageBox.Show(img);
-                Bitmap grayImage = Grayscale.CommonAlgorithms.BT709.Apply(img);
-                grayImage.Save("temp_3.jpg");
-                // extrat biggest blob
-                ExtractBiggestBlob eb_filter = new ExtractBiggestBlob();
-                Bitmap bb = eb_filter.Apply(grayImage);
-                //
-                bb.Save("temp_4.jpg");
-                // 
-                Rectangle r = new Rectangle(eb_filter.BlobPosition.X, eb_filter.BlobPosition.Y, bb.Width, bb.Height);
-                c = new Crop(r);
-                b = c.Apply(src1);
-                b.Save("temp_5.jpg");
-                // 2nd round
-                img = ec_filter.Apply(b);
-                img.Save("temp_2.jpg");
-                grayImage = Grayscale.CommonAlgorithms.BT709.Apply(img);
-                grayImage.Save("temp_3.jpg");
-
-                Threshold tf = new Threshold(50);
-                tf.ApplyInPlace(grayImage);
-                Invert invert = new Invert();
-                invert.ApplyInPlace(grayImage);
-                grayImage.Save("temp_3.jpg");
-
-                ExtractBiggestBlob eb_filter_2 = new ExtractBiggestBlob();
-                bb = eb_filter_2.Apply(grayImage);
-                bb.Save("temp_4.jpg");
-                Rectangle r2 = new Rectangle(r.X + eb_filter_2.BlobPosition.X, r.Y + eb_filter_2.BlobPosition.Y, bb.Width, bb.Height);
-                Program.logIt(string.Format("r={0}", r2));
-                c = new Crop(r2);
-                b = c.Apply(src);
-                b.Save("temp_1.jpg");
+                CvInvoke.FindContours(g1, contours, null, RetrType.External, ChainApproxMethod.ChainApproxNone);
+                int count = contours.Size;
+                for (int i = 0; i < count; i++)
+                {
+                    VectorOfPoint contour = contours[i];
+                    VectorOfPoint approxContour = new VectorOfPoint();
+                    CvInvoke.ApproxPolyDP(contour, approxContour, CvInvoke.ArcLength(contour, true) * 0.05, true);
+                    if (approxContour.Size == 4)
+                    {
+                        if (CvInvoke.ContourArea(approxContour, false) > 250)
+                        {
+                            Rectangle r = CvInvoke.BoundingRectangle(approxContour);
+                            Rectangle r1 = CvInvoke.BoundingRectangle(contour);
+                            //Program.logIt(string.Format("{0}", r));
+                            //Program.logIt(string.Format("{0}", r1));
+                            retR = r1;
+                            retB = true;
+                        }
+                    }
+                }
             }
-            catch (Exception) { }
+            return new Tuple<bool, Rectangle>(retB, retR);
+        }
+        static void search_color()
+        {
+            Image<Bgr, Byte> img = new Image<Bgr, byte>(new Bitmap(@"C:\test\save_00.jpg"));
+            //Image<Gray, Byte> mask = new Image<Gray, byte>(img.Size);
+            //Bgr v;
+            //for (int i = 0; i < img.Height; i++)
+            //{
+            //    for (int j = 0; j < img.Width; j++)
+            //    {
+            //        v = img[i, j];
+            //        mask[i, j] = new Gray(v.Blue);
+            //    }
+            //}
+            //mask.Save("temp_1.jpg");
+            Bgr c1 = new Bgr(150, 100, 50);
+            Bgr c2 = new Bgr(250, 200, 100);
+            Image<Gray, Byte> g1 = img.InRange(c1, c2);
+            g1.Save("temp_2.jpg");
+        }
+        static void test_blue_color()
+        {
+            Mat img = CvInvoke.Imread(@"C:\test\save_00.jpg", ImreadModes.AnyColor);
+            Mat img1 = new Mat();
+            CvInvoke.GaussianBlur(img, img1, new Size(11, 11), 0);
+            img1.Save("temp_1.jpg");
+            Bgr c1 = new Bgr(100, 50, 0); //new Bgr(160, 50, 30);
+            Bgr c2 = new Bgr(250, 220, 100); //new Bgr(250, 200, 100);
+            Bgr c3 = new Bgr(80, 20, 10); //new Bgr(160, 50, 30);
+            Bgr c4 = new Bgr(160, 100, 60); //new Bgr(250, 200, 100);
+            Image<Gray, Byte> g1 = (img1.ToImage<Bgr, Byte>()).InRange(c3, c4);
+            g1.Save("temp_2.jpg");
+            Rectangle maxR = new Rectangle(0, 0, 60, 60);
+            using (VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint())
+            {
+                CvInvoke.FindContours(g1, contours, null, RetrType.External, ChainApproxMethod.ChainApproxNone);
+                int count = contours.Size;
+                for (int i = 0; i < count; i++)
+                {
+                    Rectangle r = CvInvoke.BoundingRectangle(contours[i]);
+                    if (r.Height * r.Width > maxR.Height * maxR.Width)
+                    {
+                        maxR = r;
+                    }
+                }
+            }
+            Program.logIt(string.Format("{0}", maxR));
+            if (maxR.X > 0 && maxR.Y > 0)
+                g1.GetSubRect(maxR).Save("temp_3.jpg");
+        }
+        static void test_match()
+        {
+            Bitmap b1 = new Bitmap(@"C:\test\test_1\temp_menu.jpg");
+            Bitmap sl = new Bitmap(@"C:\test\scroll_left.jpg");
+            Image<Gray, Byte> slicon = new Image<Gray, byte>(sl);
+            slicon = slicon.Not();
+            slicon.Save("temp_1.jpg");
+            Image<Gray, Byte> test = new Image<Gray, Byte>(b1);
+            //long l;
+            //Mat r = DrawMatches.Draw(slicon.Mat, test.Mat, out l);
+            //r.Save("temp_2.jpg");
+
+            //SURF surfCPU = new SURF(400);
+            //Brisk surfCPU = new Brisk();
+            SIFT surfCPU = new SIFT();
+            VectorOfKeyPoint modelKeyPoints = new VectorOfKeyPoint();
+            VectorOfKeyPoint observedKeyPoints = new VectorOfKeyPoint();
+            UMat modelDescriptors = new UMat();
+            UMat observedDescriptors = new UMat();
+            surfCPU.DetectAndCompute(slicon, null, modelKeyPoints, modelDescriptors, false);
+            surfCPU.DetectAndCompute(test, null, observedKeyPoints, observedDescriptors, false);
+
+            var indices = new Matrix<int>(observedDescriptors.Rows, 2);
+            var dists = new Matrix<float>(observedDescriptors.Rows, 2);
+            var flannIndex = new Index(modelDescriptors, new KMeansIndexParams());
+            flannIndex.KnnSearch(observedDescriptors, indices, dists, 2);
+            for (int i = 0; i < indices.Rows; i++)
+            {
+                if (dists.Data[i, 0] < (0.6 * dists.Data[i, 1]))
+                {
+                    int idx1 = indices[i, 0];
+                    int idx2 = indices[i, 1];
+                    Program.logIt(string.Format("{0}-{1}", indices[i, 0], indices[i, 1]));
+                    MKeyPoint p1 = modelKeyPoints[idx1];
+                    MKeyPoint p2 = observedKeyPoints[idx2];
+                    Program.logIt(string.Format("{0}-{1}", p1.Point, p2.Point));
+                }
+            }
         }
     }
 }
