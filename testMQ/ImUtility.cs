@@ -317,7 +317,7 @@ namespace testMQ
             return ret.ToArray();
         }
 
-        public static bool is_same_image(Bitmap f1, Bitmap f2, double threshold=25.0)
+        public static bool is_same_image(Bitmap f1, Bitmap f2, double threshold=50.0)
         {
             bool ret = false;
             if (f1 != null && f2 != null)
@@ -539,14 +539,14 @@ namespace testMQ
             Image<Bgr, Byte> img = new Image<Bgr, byte>(src);
             Mat img1 = new Mat();
             CvInvoke.GaussianBlur(img, img1, new Size(11, 11), 0);
-            //img1.Save("temp_1.jpg");
+            //img1.Save("temp_2.jpg");
 
-            //Bgr c1 = new Bgr(100, 50, 0); //new Bgr(160, 50, 30);
-            //Bgr c2 = new Bgr(250, 220, 100); //new Bgr(250, 200, 100);
+            Bgr c1 = new Bgr(160, 80, 10); //new Bgr(160, 50, 30);
+            Bgr c2 = new Bgr(250, 140, 50); //new Bgr(250, 200, 100);
             //Bgr c1 = new Bgr(170, 130, 70); //new Bgr(160, 50, 30);
             //Bgr c2 = new Bgr(250, 230, 160); //new Bgr(250, 200, 100);
-            Bgr c1 = new Bgr(80, 20, 10);
-            Bgr c2 = new Bgr(160, 100, 60);
+            //Bgr c1 = new Bgr(80, 20, 10);
+            //Bgr c2 = new Bgr(160, 100, 60);
             Image<Gray, Byte> g1 = (img1.ToImage<Bgr, Byte>()).InRange(c1, c2);
             //g1.Save("temp_2.jpg");
             Rectangle maxR = new Rectangle(0, 0, minS.Width, minS.Height);

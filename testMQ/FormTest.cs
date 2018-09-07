@@ -26,18 +26,18 @@ namespace testMQ
         private void FormTest_Load(object sender, EventArgs e)
         {
             
-            var videoDevices = new FilterInfoCollection(FilterCategory.VideoInputDevice);
-            videoSource = new VideoCaptureDevice(videoDevices[0].MonikerString);
-            videoSource.VideoResolution = videoSource.VideoCapabilities[0];
-            foreach (var vc in videoSource.VideoCapabilities)
-            {
-                if (vc.FrameSize.Width > videoSource.VideoResolution.FrameSize.Width && vc.FrameSize.Height > videoSource.VideoResolution.FrameSize.Height)
-                    videoSource.VideoResolution = vc;
-            }
-            //videoSource.DesiredFrameSize = videoSource.VideoResolution.FrameSize;
-            videoSource.NewFrame += VideoSource_NewFrame;
-            videoSource.SnapshotFrame += VideoSource_SnapshotFrame;
-            videoSource.Start();
+            //var videoDevices = new FilterInfoCollection(FilterCategory.VideoInputDevice);
+            //videoSource = new VideoCaptureDevice(videoDevices[0].MonikerString);
+            //videoSource.VideoResolution = videoSource.VideoCapabilities[0];
+            //foreach (var vc in videoSource.VideoCapabilities)
+            //{
+            //    if (vc.FrameSize.Width > videoSource.VideoResolution.FrameSize.Width && vc.FrameSize.Height > videoSource.VideoResolution.FrameSize.Height)
+            //        videoSource.VideoResolution = vc;
+            //}
+            ////videoSource.DesiredFrameSize = videoSource.VideoResolution.FrameSize;
+            //videoSource.NewFrame += VideoSource_NewFrame;
+            //videoSource.SnapshotFrame += VideoSource_SnapshotFrame;
+            //videoSource.Start();
             
 /*
             vc = new VideoCapture(1);
@@ -61,8 +61,8 @@ namespace testMQ
             vc.ImageGrabbed += Vc_ImageGrabbed;
             vc.Start();
             */
-            //timer1.Enabled = true;
-            //timer1.Start();
+            timer1.Enabled = true;
+            timer1.Start();
 
         }
 
@@ -160,18 +160,72 @@ namespace testMQ
 
         private void timer1_Tick(object sender, EventArgs e)
         {
-            if(videoSource!=null)
-            {
-                videoSource.SimulateTrigger();
+            //if(videoSource!=null)
+            //{
+            //    videoSource.SimulateTrigger();
 
-            }
-            if (vc != null)
+            //}
+            //if (vc != null)
+            //{
+            //    Mat m = vc.QueryFrame();
+            //    pictureBox1.Invoke(new MethodInvoker(delegate
+            //    {
+            //        pictureBox1.Image = m.Bitmap;
+            //    }));
+            //}
+            string fn = @"C:\projects\local\xindawn-airplay-sdk-example\screen.jpeg";
+            DateTime l = DateTime.Now - new TimeSpan(0, 1, 0);
+            Bitmap bmp = null;
+            try
             {
-                Mat m = vc.QueryFrame();
-                pictureBox1.Invoke(new MethodInvoker(delegate
+                if (System.IO.File.Exists(fn))
                 {
-                    pictureBox1.Image = m.Bitmap;
-                }));
+                    l = System.IO.File.GetLastWriteTime(fn);
+                }
+                System.Threading.EventWaitHandle evt = System.Threading.EventWaitHandle.OpenExisting(@"Global\captureimage");
+                evt.Set();
+                evt.Close();
+                DateTime _s = DateTime.Now;
+                do
+                {
+                    if (System.IO.File.Exists(fn))
+                    {
+                        DateTime _l = System.IO.File.GetLastWriteTime(fn);
+                        if (_l > l)
+                        {
+                            try
+                            {
+                                using (var bmpTemp = new Bitmap(fn))
+                                {
+                                    bmp = new Bitmap(bmpTemp);
+                                }
+                                //bmp = new Bitmap(fn);                            
+                                break;
+                            }
+                            catch (Exception) { }
+                        }
+                    }
+                } while ((DateTime.Now - _s).TotalSeconds < 3);
+                if (bmp != null)
+                {
+                    pictureBox1.Invoke(new MethodInvoker(delegate
+                    {
+                        try
+                        {
+                            pictureBox1.Image = bmp;
+                        }
+                        catch (Exception ex)
+                        {
+                            Program.logIt(ex.Message);
+                            Program.logIt(ex.StackTrace);
+                        }
+                    }));
+                }
+            }
+            catch(Exception ex)
+            {
+                Program.logIt(ex.Message);
+                Program.logIt(ex.StackTrace);
             }
         }
     }

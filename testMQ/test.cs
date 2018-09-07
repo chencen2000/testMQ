@@ -228,7 +228,7 @@ namespace testMQ
         }
         static void camera_init()
         {
-            Mat img = CvInvoke.Imread(@"C:\test\save_00.jpg", ImreadModes.AnyColor);
+            Mat img = CvInvoke.Imread(@"C:\test\save_01.jpg", ImreadModes.AnyColor);
             Tuple< bool, Rectangle, Bitmap> res = ImUtility.extrac_blue_block(img.Bitmap);
             if (res.Item3 != null && res.Item1)
             {
@@ -569,12 +569,17 @@ namespace testMQ
         }
         static void test_1()
         {
-            Mat img0 = CvInvoke.Imread(@"C:\test\save_00.jpg");
-            Mat img1 = CvInvoke.Imread(@"C:\test\save_01.jpg");
-            Mat img2 = CvInvoke.Imread(@"C:\test\save_02.jpg");
-            Mat img3 = CvInvoke.Imread(@"C:\test\save_03.jpg");
-            bool is_same = ImUtility.is_same_image(img0.Bitmap, img1.Bitmap);
+            Mat img1 = CvInvoke.Imread(@"C:\test\pictures\ios11-settings-icon-100741874-large.jpg");
+            Mat img2 = CvInvoke.Imread(@"C:\test\save_01.jpg");
+            long l;
+            Mat m = DrawMatches.Draw(img1, img2, out l);
+            m.Save("temp_1.jpg");
 
+            // haar test
+            CascadeClassifier haar_email = new CascadeClassifier(@"trained\settings_cascade.xml");
+            Rectangle[] ret = haar_email.DetectMultiScale(img2);
+            foreach (Rectangle r in ret)
+                Program.logIt(string.Format("{0}", r));
         }
         static void test_ml_SMO()
         {

@@ -69,3 +69,8 @@ Image<Gray, Byte> g1 = (img1.ToImage<Bgr, Byte>()).InRange(c1, c2);
 Bgr c3 = new Bgr(170, 130, 70); //new Bgr(160, 50, 30);
 Bgr c4 = new Bgr(250, 230, 160); //new Bgr(250, 200, 100);
 
+airplay mirroring
+iphone 6s: 1334-by-750-pixel resolution at 326 ppi
+homepage blue size
+normal: 106x147; row=6
+zoomed: 125x179; row=5,

@@ -28,6 +28,7 @@
         /// </summary>
         private void InitializeComponent()
         {
+            this.components = new System.ComponentModel.Container();
             this.splitContainer1 = new System.Windows.Forms.SplitContainer();
             this.pictureBox1 = new System.Windows.Forms.PictureBox();
             this.menuStrip1 = new System.Windows.Forms.MenuStrip();
@@ -36,6 +37,7 @@
             this.exitToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.toolsToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.calibrationToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.readIMEIToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.testToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.controlToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.moveNextItemToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
@@ -44,7 +46,7 @@
             this.tapToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.goToHomeToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.appSwitchToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
-            this.readIMEIToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
+            this.timer1 = new System.Windows.Forms.Timer(this.components);
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer1)).BeginInit();
             this.splitContainer1.Panel1.SuspendLayout();
             this.splitContainer1.Panel2.SuspendLayout();
@@ -129,14 +131,21 @@
             // calibrationToolStripMenuItem
             // 
             this.calibrationToolStripMenuItem.Name = "calibrationToolStripMenuItem";
-            this.calibrationToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
+            this.calibrationToolStripMenuItem.Size = new System.Drawing.Size(132, 22);
             this.calibrationToolStripMenuItem.Text = "Calibration";
             this.calibrationToolStripMenuItem.Click += new System.EventHandler(this.calibrationToolStripMenuItem_Click);
+            // 
+            // readIMEIToolStripMenuItem
+            // 
+            this.readIMEIToolStripMenuItem.Name = "readIMEIToolStripMenuItem";
+            this.readIMEIToolStripMenuItem.Size = new System.Drawing.Size(132, 22);
+            this.readIMEIToolStripMenuItem.Text = "Read IMEI";
+            this.readIMEIToolStripMenuItem.Click += new System.EventHandler(this.readIMEIToolStripMenuItem_Click);
             // 
             // testToolStripMenuItem
             // 
             this.testToolStripMenuItem.Name = "testToolStripMenuItem";
-            this.testToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
+            this.testToolStripMenuItem.Size = new System.Drawing.Size(132, 22);
             this.testToolStripMenuItem.Text = "Test";
             this.testToolStripMenuItem.Click += new System.EventHandler(this.testToolStripMenuItem_Click);
             // 
@@ -195,12 +204,10 @@
             this.appSwitchToolStripMenuItem.Text = "App Switch";
             this.appSwitchToolStripMenuItem.Click += new System.EventHandler(this.appSwitchToolStripMenuItem_Click);
             // 
-            // readIMEIToolStripMenuItem
+            // timer1
             // 
-            this.readIMEIToolStripMenuItem.Name = "readIMEIToolStripMenuItem";
-            this.readIMEIToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
-            this.readIMEIToolStripMenuItem.Text = "Read IMEI";
-            this.readIMEIToolStripMenuItem.Click += new System.EventHandler(this.readIMEIToolStripMenuItem_Click);
+            this.timer1.Interval = 250;
+            this.timer1.Tick += new System.EventHandler(this.timer1_Tick);
             // 
             // Form1
             // 
@@ -244,6 +251,7 @@
         private System.Windows.Forms.ToolStripMenuItem calibrationToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem testToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem readIMEIToolStripMenuItem;
+        private System.Windows.Forms.Timer timer1;
     }
 }
 

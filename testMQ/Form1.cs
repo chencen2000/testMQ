@@ -30,6 +30,7 @@ namespace testMQ
         Bitmap current_raw_image = null;
         DateTime last_frame_time = DateTime.Now - new TimeSpan(1, 0, 0);
         double frame_angle = 0.0;
+        Rectangle frame_roi = Rectangle.Empty;
         System.Collections.Generic.Dictionary<string, object> home_screen_info = new Dictionary<string, object>();
         public Form1()
         {
@@ -39,21 +40,23 @@ namespace testMQ
         private void Form1_Load(object sender, EventArgs e)
         {
             var videoDevices = new FilterInfoCollection(FilterCategory.VideoInputDevice);
-            videoSource = new VideoCaptureDevice(videoDevices[0].MonikerString);
-            videoSource.VideoResolution = videoSource.VideoCapabilities[0];
-            foreach (var vc in videoSource.VideoCapabilities)
-            {
-                if (vc.FrameSize.Width > videoSource.VideoResolution.FrameSize.Width && vc.FrameSize.Height > videoSource.VideoResolution.FrameSize.Height)
-                    videoSource.VideoResolution = vc;
-            }
-            videoSource.NewFrame += VideoSource_NewFrame;
-            videoSource.Start();
-            // start image process thread
-            System.Threading.Thread t = new System.Threading.Thread(this.processImageThread);
-            t.IsBackground = true;
-            t.Start();
+            //videoSource = new VideoCaptureDevice(videoDevices[0].MonikerString);
+            //videoSource.VideoResolution = videoSource.VideoCapabilities[0];
+            //foreach (var vc in videoSource.VideoCapabilities)
+            //{
+            //    if (vc.FrameSize.Width > videoSource.VideoResolution.FrameSize.Width && vc.FrameSize.Height > videoSource.VideoResolution.FrameSize.Height)
+            //        videoSource.VideoResolution = vc;
+            //}
+            //videoSource.NewFrame += VideoSource_NewFrame;
+            //videoSource.Start();
+            //// start image process thread
+            //System.Threading.Thread t = new System.Threading.Thread(this.processImageThread);
+            //t.IsBackground = true;
+            //t.Start();
+            timer1.Enabled = true;
+            timer1.Start();
             // COM4
-            KeyInput.getInstance().setSerialPort("COM8");
+            KeyInput.getInstance().setSerialPort("COM4");
             KeyInput.getInstance().start();
         }
 
@@ -178,17 +181,17 @@ namespace testMQ
                 switch (saveFileDialog1.FilterIndex)
                 {
                     case 1:
-                        current_image.Save(fs,
+                        current_raw_image.Save(fs,
                            System.Drawing.Imaging.ImageFormat.Jpeg);
                         break;
 
                     case 2:
-                        current_image.Save(fs,
+                        current_raw_image.Save(fs,
                            System.Drawing.Imaging.ImageFormat.Bmp);
                         break;
 
                     case 3:
-                        current_image.Save(fs,
+                        current_raw_image.Save(fs,
                            System.Drawing.Imaging.ImageFormat.Gif);
                         break;
                 }
@@ -359,8 +362,8 @@ namespace testMQ
                 //read_imei();
                 //put_device_ready();
                 //test();
-                //click_home(10*1000);                
-                close_all_apps();
+                click_home(10*1000);                
+                //close_all_apps();
                 Program.logIt("test: --");
             });
         }
@@ -414,19 +417,20 @@ namespace testMQ
         {
             DateTime _start = DateTime.Now;
             Program.logIt(string.Format("click_home: ++ {0}", _start.ToString("o")));
-            Bitmap b1 = (Bitmap)current_image.Clone();
+            Bitmap b1 = new Bitmap(current_raw_image);
             //b1.Save("temp_0.jpg");
             KeyInput.getInstance().sendKey(0x4a);
             //System.Threading.Thread.Sleep(1000);
-            int i = 1;
             while ((DateTime.Now - _start).TotalMilliseconds < wait)
             {
                 System.Threading.Thread.Sleep(500);
                 try
                 {
-                    Bitmap b2 = (Bitmap)current_image.Clone();
-                    double psnr = ImUtility.get_PSNR(b2, b1);
-                    if (psnr > 25.0) // treat as same image
+                    Bitmap b2 = new Bitmap(current_raw_image); 
+                    //double psnr = ImUtility.get_PSNR(b2, b1);
+                    //if (psnr > 25.0) // treat as same image
+                    //    continue;
+                    if (ImUtility.is_same_image(b1, b2))
                         continue;
                     //b2.Save(string.Format("temp_{0}.jpg", i++));
                     Tuple<bool, Rectangle, Bitmap> r = ImUtility.extrac_blue_block(b2, new Size(100, 100));
@@ -437,8 +441,9 @@ namespace testMQ
                         //r.Item3.Save(string.Format("temp_{0}.jpg", i++));
                         if (rl.Contains(r.Item2))
                             break;
-                        //break;
                     }
+                    else
+                        Program.logIt(string.Format("NOT Found blue Block: "));
                     b1 = b2;
                 }
                 catch (Exception) { }
@@ -877,6 +882,108 @@ namespace testMQ
             {
                 read_imei();
             });
+        }
+        Bitmap get_image()
+        {
+            string fn = @"C:\projects\local\xindawn-airplay-sdk-example\screen.jpeg";
+            DateTime l = DateTime.Now - new TimeSpan(0, 1, 0);
+            Bitmap bmp = null;
+            try
+            {
+                if (System.IO.File.Exists(fn))
+                {
+                    l = System.IO.File.GetLastWriteTime(fn);
+                }
+                System.Threading.EventWaitHandle evt = System.Threading.EventWaitHandle.OpenExisting(@"Global\captureimage");
+                evt.Set();
+                evt.Close();
+                DateTime _s = DateTime.Now;
+                do
+                {
+                    if (System.IO.File.Exists(fn))
+                    {
+                        DateTime _l = System.IO.File.GetLastWriteTime(fn);
+                        if (_l > l)
+                        {
+                            try
+                            {
+                                using (var bmpTemp = new Bitmap(fn))
+                                {
+                                    bmp = new Bitmap(bmpTemp);
+                                }
+                                //bmp = new Bitmap(fn);                            
+                                break;
+                            }
+                            catch (Exception) { }
+                        }
+                    }
+                } while ((DateTime.Now - _s).TotalSeconds < 3);
+                //if (bmp != null)
+                //{
+                //    pictureBox1.Invoke(new MethodInvoker(delegate
+                //    {
+                //        try
+                //        {
+                //            pictureBox1.Image = bmp;
+                //        }
+                //        catch (Exception ex)
+                //        {
+                //            Program.logIt(ex.Message);
+                //            Program.logIt(ex.StackTrace);
+                //        }
+                //    }));
+                //}
+            }
+            catch (Exception ex)
+            {
+                Program.logIt(ex.Message);
+                Program.logIt(ex.StackTrace);
+            }
+            return bmp;
+        }
+        private void timer1_Tick(object sender, EventArgs e)
+        {
+            // get frame
+            Bitmap frame = get_image();
+            if (frame != null)
+            {
+                if(frame_roi.IsEmpty)
+                {
+                    Image<Bgr, Byte> img = new Image<Bgr, byte>(frame);
+                    int x1 = -1, x2 = 0;
+                    for (int i = 0; i < img.Width; i++)
+                    {
+                        Byte b = img.Data[0, i, 0];
+                        Byte g = img.Data[0, i, 1];
+                        Byte r = img.Data[0, i, 2];
+                        if (b != 0 || g != 0 || r != 0)
+                        {
+                            if (x1 < 0) x1 = i;
+                            x2 = i;
+                        }
+                    }
+                    frame_roi = new Rectangle(x1, 0, x2 - x1 + 1, img.Height);
+                    Program.logIt(string.Format("rect={0}", frame_roi));
+                }
+                if(!frame_roi.IsEmpty)
+                {
+                    Image<Bgr, Byte> img = new Image<Bgr, byte>(frame);
+                    Image<Bgr, Byte> img1 = img.GetSubRect(frame_roi);
+                    current_raw_image = new Bitmap(img1.Bitmap);
+                    current_image = new Bitmap(img1.Resize(0.75, Inter.Cubic).Bitmap);
+                    pictureBox1.Invoke(new MethodInvoker(delegate
+                    {
+                        //current_image = new Bitmap(current_raw_image);
+                        pictureBox1.Image = new Bitmap(current_image);
+                    }));
+                }
+                //current_raw_image = new Bitmap(frame);
+                //pictureBox1.Invoke(new MethodInvoker(delegate
+                //{
+                //    current_image = new Bitmap(frame);
+                //    pictureBox1.Image = new Bitmap(current_image);
+                //}));
+            }
         }
     }
 }
