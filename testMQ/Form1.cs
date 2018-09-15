@@ -8,8 +8,10 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace testMQ
@@ -28,8 +30,12 @@ namespace testMQ
         System.Threading.AutoResetEvent quit = new System.Threading.AutoResetEvent(false);
         Bitmap current_image = null;
         Bitmap current_raw_image = null;
+        Bitmap homescreen = null;
         DateTime last_frame_time = DateTime.Now - new TimeSpan(1, 0, 0);
-        double frame_angle = 0.0;
+        //double frame_angle = 0.0;
+        bool busy = false;
+        string busy_text = string.Empty;
+        double raw_to_show = 0.75;
         Rectangle frame_roi = Rectangle.Empty;
         System.Collections.Generic.Dictionary<string, object> home_screen_info = new Dictionary<string, object>();
         public Form1()
@@ -56,7 +62,7 @@ namespace testMQ
             timer1.Enabled = true;
             timer1.Start();
             // COM4
-            KeyInput.getInstance().setSerialPort("COM4");
+            KeyInput.getInstance().setSerialPort("COM5");
             KeyInput.getInstance().start();
         }
 
@@ -85,84 +91,6 @@ namespace testMQ
 
         void processImageThread(object obj)
         {
-            Program.logIt("processImageThread: ++");
-            Rectangle rect = Rectangle.Empty;
-            while (!quit.WaitOne(10))
-            {
-                if (new_frame_queue.Count > 0)
-                {
-                    Bitmap cf = null;
-                    while (new_frame_queue.TryDequeue(out cf))
-                    {
-                        if (frame_angle == 0.0)
-                        {
-                            Tuple<Bitmap, double, Rectangle> res = ImUtility.smate_rotate_1((Bitmap)cf.Clone(),90.0);
-                            if (res.Item1 != null)
-                            {
-                                cf = res.Item1;
-                                frame_angle = res.Item2;
-                                rect = res.Item3;
-                                
-                                // locate home screen icons
-                                get_homescreen_icons(home_screen_info, 0,cf);
-                            }
-                        }
-                        else
-                        {
-                            //RotateBicubic filter = new RotateBicubic(frame_angle);
-                            //Bitmap src1 = filter.Apply(cf);
-                            //Crop c_filter = new Crop(rect);
-                            //cf = c_filter.Apply(src1);
-                            Image<Bgra, Byte> i = new Image<Bgra, byte>(cf);
-                            Image<Bgra, Byte> rotated = i.Rotate(frame_angle, new Bgra(), false);
-                            Image<Bgra, Byte> copped = rotated.GetSubRect(rect);
-                            cf = copped.Bitmap;
-                        }
-                        pictureBox1.Invoke(new MethodInvoker(delegate
-                        {
-                            //ImUtility.get_PSNR(current_image, cf);
-                            current_image = (Bitmap)cf.Clone();
-                            //Program.logIt("current image updated.");
-                            pictureBox1.Image = (Bitmap)cf.Clone();
-                        }));
-                        //if ((DateTime.Now - dt).TotalMilliseconds > 50)
-                        //{
-                        //    dt = DateTime.Now;
-                        //    //Tuple<bool, float, Bitmap> diff = ImUtility.diff_images((Bitmap)cf.Clone(), (Bitmap)current_image.Clone());
-                        //    bool same_frame = (current_raw_image == null) ? false : ImUtility.is_same_image((Bitmap)cf.Clone(), (Bitmap)current_raw_image.Clone());
-                        //    if (!same_frame)
-                        //    {
-                        //        //current_raw_image = cf;
-                        //        if (angle == 0.0)
-                        //        {
-                        //            Tuple<Bitmap, double, Rectangle> res = ImUtility.smate_rotate((Bitmap)cf.Clone());
-                        //            if(res.Item1!=null)
-                        //            {
-                        //                cf = res.Item1;
-                        //                angle = res.Item2;
-                        //                rect = res.Item3;
-                        //            }
-                        //        }
-                        //        else
-                        //        {
-                        //            // turn and crop
-                        //            RotateBicubic filter = new RotateBicubic(angle);
-                        //            Bitmap src1 = filter.Apply(cf);
-                        //            Crop c_filter = new Crop(rect);
-                        //            cf = c_filter.Apply(src1);
-
-                        //        }
-                        //        pictureBox1.Invoke(new MethodInvoker(delegate
-                        //        {
-                        //            current_image = cf;
-                        //            pictureBox1.Image = cf;
-                        //        }));
-                        //    }
-                        //}
-                    }
-                }
-            }
-            Program.logIt("processImageThread: --");
         }
         void saveCurrentImage()
         {
@@ -199,11 +127,66 @@ namespace testMQ
                 fs.Close();
             }
         }
-        private void pictureBox1_MouseClick(object sender, MouseEventArgs e)
+        private async void pictureBox1_MouseClick(object sender, MouseEventArgs e)
         {
-            saveCurrentImage();
+            //saveCurrentImage();
+            Program.logIt(string.Format("mouse click: {0}, {1}", e.Button, e.Location));
+            if (!busy)
+            {
+                busy = true;
+                double x = 1.0 * e.Location.X / raw_to_show;
+                double y = 1.0 * e.Location.Y / raw_to_show;
+                busy_text = String.Format("Click at ({0},{1}).\n Please wait.", (int)x, (int)y);
+                if (e.Button == MouseButtons.Left)
+                {
+                    await Task.Run(() =>
+                    {
+                        tapXY(new Point((int)x, (int)y), 0x52);
+                    });
+
+                    //System.Threading.ThreadPool.QueueUserWorkItem(o =>
+                    //{
+                    //    tapXY(new Point((int)x, (int)y), 0x52);
+                    //});
+                }
+                else if (e.Button == MouseButtons.Right)
+                {
+                    //tapXY(new Point((int)x, (int)y), 0x51);
+                }
+                busy = false;
+            }
         }
 
+        void tapXY(Point XY, byte key)
+        {
+            Program.logIt(string.Format("tapXY: ++ {0}", XY));
+            Tuple<Bitmap, Rectangle> page = get_first_item_rectangle();
+            Point center_of_first_item = new Point(page.Item2.X + page.Item2.Width / 2, page.Item2.Y + page.Item2.Height / 2);
+            bool done = false;
+            Bitmap b;
+            while(!done && page.Item1!=null)
+            {
+                //page.Item1.Save("temp_1.jpg");
+                b = new Bitmap(current_raw_image);
+                KeyInput.getInstance().sendKey(0x4f);
+                waitForScreenChange(b);
+                b = new Bitmap(current_raw_image);
+                Rectangle br = ImUtility.detect_blue_rectangle(page.Item1, b);
+                if (br.Contains(XY))
+                {
+                    // found;
+                    KeyInput.getInstance().sendKey(key);
+                    break;
+                }
+                if (br.Contains(center_of_first_item))
+                {
+                    // loop back
+                    Program.logIt("look back to the first item");
+                    break;
+                }
+            }
+            Program.logIt(string.Format("tapXY: --"));
+        }
         private void saveToolStripMenuItem_Click(object sender, EventArgs e)
         {
             // save current image to file
@@ -245,9 +228,32 @@ namespace testMQ
             Close();
         }
 
+        void calibration_thread()
+        {
+            click_home_v2();
+            Bitmap b1 = new Bitmap(current_raw_image);
+            Tuple<Bitmap, Rectangle> res = get_first_item_rectangle();
+            Bitmap b0 = res.Item1;
+            Rectangle firstR = res.Item2;
+            Bitmap b2 = new Bitmap(current_raw_image);
+            if(ImUtility.is_same_image(b1,b2))
+            {
+                //Rectangle br = ImUtility.detect_blue_rectangle(b0, b1);
+                homescreen = b0;
+            }
+            // 
+            go_to_top_of_setting();
+            close_all_apps_v2();
+        }
         private void calibrationToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            frame_angle = 0.0;
+            //frame_angle = 0.0;
+            //KeyInput.getInstance().sendKey(0x4a);
+            System.Threading.ThreadPool.QueueUserWorkItem(o =>
+            {
+                calibration_thread();
+            });
+            MessageBox.Show(this, "Will capture the home screen and close all apps.", "Calibration");
         }
 
         void close_all_apps()
@@ -340,32 +346,183 @@ namespace testMQ
             }
             b.Save("temp_1.jpg");
         }
+        int waitForScreenChange(Bitmap src, int threshold = 30, int timeout = 5)
+        {
+            Program.logIt("waitForScreenChange: ++");
+            // ret=0, screen changed,
+            // ret=1, timeout
+            int ret = 1;
+            bool done = false;
+            DateTime _s = DateTime.Now;
+            // wait for change
+            while (!done && (DateTime.Now - _s).TotalSeconds < 5)
+            {
+                System.Threading.Thread.Sleep(200);
+                Bitmap b1 = new Bitmap(current_raw_image);
+                if (!ImUtility.is_same_image(b1, src, threshold))
+                {
+                    ret = 0;
+                    done = true;
+                }
+            }
+            Program.logIt(string.Format("waitForScreenChange: -- ret={0}", ret));
+            return ret;
+        }
+        bool waitForScreenStable(int interval=200, int framecount=5, int threshold = 50, int timeout = 5)
+        {
+            Program.logIt("waitForScreenStable: ++");
+            bool ret = false;
+            Bitmap[] bmps = new Bitmap[framecount];
+            DateTime _start = DateTime.Now;
+            int cnt = 0;
+            while (!ret && (DateTime.Now - _start).TotalSeconds < timeout)
+            {
+                System.Threading.Thread.Sleep(interval);
+                bmps[cnt++ % framecount] = new Bitmap(current_raw_image);
+                //cnt++;
+                if (cnt > framecount)
+                {
+                    if (ImUtility.is_all_image_same(bmps, threshold))
+                        ret = true;
+                    else
+                        Program.logIt("not all same.");
+                }
+            }
+            Program.logIt(string.Format("waitForScreenStable: -- ret={0}", ret));
+            return ret;
+        }
+        Bitmap get_homescreen_without_bluebox()
+        {
+            Bitmap ret = null;
+            Bitmap b1 = new Bitmap(current_raw_image);
+            KeyInput.getInstance().sendKey(0x48);
+            waitForScreenChange(b1);
+            ret = new Bitmap(current_raw_image);
+            ret.Save("temp_hs.jpg");
+            return ret;
+        }
+        Tuple<Bitmap, Rectangle> get_first_item_rectangle()
+        {
+            Bitmap retB = null;
+            Rectangle retR = Rectangle.Empty;
+            Bitmap b1 = new Bitmap(current_raw_image);
+            KeyInput.getInstance().sendKey(0x48);
+            System.Threading.Thread.Sleep(500);
+            waitForScreenChange(b1, 30);
+            retB = new Bitmap(current_raw_image);
+            KeyInput.getInstance().sendKey(0x4f);
+            System.Threading.Thread.Sleep(200);
+            waitForScreenChange(retB,30);
+            b1 = new Bitmap(current_raw_image);
+            retR = ImUtility.detect_blue_rectangle(retB, b1);
+            return new Tuple<Bitmap, Rectangle>(retB, retR);
+        }
+        void close_all_apps_v2()
+        {
+            Program.logIt("close_all_apps_v2: ++");
+            click_home_v2();
+            Bitmap homescreen = new Bitmap(current_raw_image);
+            // click app switch
+            Program.logIt("click app switch");
+            KeyInput.getInstance().sendKey(0x4d);
+            waitForScreenStable(250, 4, 30, 10);
+
+            bool done = false;
+            while (!done)
+            {
+                // wait for menu
+                Bitmap app = new Bitmap(current_raw_image);
+                //waitForScreenChange(homescreen);
+                if (ImUtility.is_same_image(homescreen, app, 30))
+                {
+                    Program.logIt("found homescreen.");
+                    break;
+                }
+
+                //app.Save("temp_1.jpg");
+                // click select
+                //app.Save("temp_1.jpg");
+                Program.logIt("click select 0x51");
+                KeyInput.getInstance().sendKey(0x51);
+                waitForScreenChange(app);
+                //
+                System.Threading.Thread.Sleep(1000);
+                Bitmap app1 = new Bitmap(current_raw_image);
+                //app1.Save("temp_2.jpg");
+                Tuple<bool, Rectangle, Bitmap> menu = ImUtility.extrac_context_menu(app, app1);
+                Image<Gray, Byte> am = null;
+                if (menu.Item1 && menu.Item3 != null)
+                {
+                    //menu.Item3.Save("temp_3.jpg");
+                    //am = new Image<Gray, byte>(menu.Item3);
+                    am = new Image<Gray, byte>(app1);
+                    // 
+                    Mat t = CvInvoke.Imread(@"images\ios_close_icon.jpg", ImreadModes.Grayscale);
+                    Mat m = new Mat();
+                    CvInvoke.MatchTemplate(am, t, m, TemplateMatchingType.CcoeffNormed);
+                    double max = 0;
+                    double min = 0;
+                    Point maxP = new Point();
+                    Point minP = new Point();
+                    CvInvoke.MinMaxLoc(m, ref min, ref max, ref minP, ref maxP);
+                    Program.logIt(string.Format("{0}: {1}", max, new Rectangle(maxP, t.Size)));
+                    if (max > 0.95)
+                    {
+                        // found.
+                        KeyInput.getInstance().sendKey(0x4f);
+                        System.Threading.Thread.Sleep(500);
+                        KeyInput.getInstance().sendKey(0x52);
+                        System.Threading.Thread.Sleep(1000);
+                        //app1 = new Bitmap(current_raw_image);
+                        waitForScreenStable();
+                    }
+                    else
+                    {
+                        done = true;
+                    }
+                }
+                else
+                    done = true;
+            }
+            Program.logIt("close_all_apps_v2: --");
+        }
         void test()
         {
-            click_home();
-            // click select to scroll right
-            Bitmap hs = (Bitmap)current_image.Clone();
+            Bitmap b1 = new Bitmap(current_raw_image);
             KeyInput.getInstance().sendKey(0x51);
-            System.Threading.Thread.Sleep(2000);
-            Bitmap b1 = (Bitmap)current_image.Clone();
-            Tuple<bool, Rectangle, Bitmap> cm = ImUtility.extrac_context_menu(hs, b1);
-            if (cm.Item1)
-            {
-
-            }
+            waitForScreenChange(b1);
+            waitForScreenStable();
+            Bitmap b2 = new Bitmap(current_raw_image);
+            Rectangle r = ImUtility.detect_blue_rectangle(b1, b2);
+            Bitmap menu = ImUtility.crop_image(b2, r);
+            menu.Save("temp_1.jpg");
+            Mat m = new Mat();
+            Image<Gray, Byte> img1 = new Image<Gray, byte>(menu);
+            Image<Gray, Byte> sl = new Image<Gray, byte>(@"C:\logs\pictures\ios_icons\scroll_right_icon.jpg");
+            CvInvoke.MatchTemplate(img1, sl, m, TemplateMatchingType.CcoeffNormed);
+            double min = 0;
+            double max = 0;
+            Point minP = new Point();
+            Point maxP = new Point();
+            CvInvoke.MinMaxLoc(m, ref min, ref max, ref minP, ref maxP);
+            Program.logIt(string.Format("max={0}, point={1}", max, maxP));
+            //KeyInput.getInstance().sendKey(0x48);
+            //KeyInput.getInstance().sendKey(0x48);
+            KeyInput.getInstance().sendKey(0x50);
+            KeyInput.getInstance().sendKey(0x51);
         }
-        private void testToolStripMenuItem_Click(object sender, EventArgs e)
+        private async void testToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            System.Threading.ThreadPool.QueueUserWorkItem(o =>
+            if (!busy)
             {
-                Program.logIt("test: ++");
-                //read_imei();
-                //put_device_ready();
-                //test();
-                click_home(10*1000);                
-                //close_all_apps();
-                Program.logIt("test: --");
-            });
+                this.busy = true;
+                this.busy_text = "Testing in progress.\n Please wait.";
+                await Task.Run(() =>
+                {
+                    test();
+                });
+                this.busy = false;
+            }
         }
         bool on_top_of_setting_menu(Bitmap src)
         {
@@ -391,17 +548,23 @@ namespace testMQ
         }
         void go_to_top_of_setting()
         {
+            go_to_settings(true, true);
+            double width_limit = 0.75* current_raw_image.Width;
+            // 
             bool done = false;
             while (!done)
             {
-                System.Threading.Thread.Sleep(3000);
-                if (on_top_of_setting_menu(current_image))
-                {
-                    done=true;
-                }
+                Tuple<Bitmap, Rectangle> rt = get_first_item_rectangle();
+                Bitmap current_bitmap = rt.Item1;
+                Rectangle first_rect = rt.Item2;
+                Point first_center = new Point(first_rect.X + first_rect.Width / 2, first_rect.Y + first_rect.Height / 2);
+                Program.logIt(string.Format("focus rect: {0} limit={1}", first_rect, width_limit));
+                if (first_rect.Width > (int)width_limit)
+                    done = true;
                 else
                 {
                     KeyInput.getInstance().sendKey(0x52);
+                    waitForScreenStable();
                 }
             }
         }
@@ -413,38 +576,51 @@ namespace testMQ
             go_to_settings(true, true);
             //go_to_top_of_setting();
         }
+        void click_home_v2(int wait = 5000)
+        {
+            Program.logIt("click_home_v2: ++");
+            KeyInput.getInstance().sendKey(0x4a);
+            waitForScreenStable(250, 6, 50, 15);
+            //Bitmap b = new Bitmap(current_raw_image);
+            //b.Save("temp_1.jpg");
+            if (homescreen == null)
+            {
+                Tuple<Bitmap, Rectangle> res = get_first_item_rectangle();
+                if (res.Item1 != null)
+                {
+                    homescreen = res.Item1;
+                    //homescreen.Save("temp_2.jpg");
+                }
+            }
+            Program.logIt("click_home_v2: --");
+        }
         void click_home(int wait = 5000)
         {
+            bool done = false;
             DateTime _start = DateTime.Now;
             Program.logIt(string.Format("click_home: ++ {0}", _start.ToString("o")));
             Bitmap b1 = new Bitmap(current_raw_image);
             //b1.Save("temp_0.jpg");
             KeyInput.getInstance().sendKey(0x4a);
             //System.Threading.Thread.Sleep(1000);
-            while ((DateTime.Now - _start).TotalMilliseconds < wait)
+            while (!done && (DateTime.Now - _start).TotalMilliseconds < wait)
             {
-                System.Threading.Thread.Sleep(500);
+                System.Threading.Thread.Sleep(50);
                 try
                 {
-                    Bitmap b2 = new Bitmap(current_raw_image); 
-                    //double psnr = ImUtility.get_PSNR(b2, b1);
-                    //if (psnr > 25.0) // treat as same image
-                    //    continue;
-                    if (ImUtility.is_same_image(b1, b2))
-                        continue;
-                    //b2.Save(string.Format("temp_{0}.jpg", i++));
-                    Tuple<bool, Rectangle, Bitmap> r = ImUtility.extrac_blue_block(b2, new Size(100, 100));
-                    if (r.Item1)
+                    Bitmap b2 = new Bitmap(current_raw_image);
+                    if (!ImUtility.is_same_image(b1, b2))
                     {
-                        Program.logIt(string.Format("Found blue Block: {0}", r.Item2));
-                        Rectangle rl = new Rectangle(0, 0, b2.Width / 2, b2.Height / 2);
-                        //r.Item3.Save(string.Format("temp_{0}.jpg", i++));
-                        if (rl.Contains(r.Item2))
-                            break;
+                        Tuple<bool, Rectangle, Bitmap> r = ImUtility.extrac_blue_block(b2, new Size(100, 100));
+                        if (r.Item1)
+                        {
+                            Program.logIt(string.Format("Found blue Block: {0}", r.Item2));
+                            done = true;
+                        }
+                        else
+                            Program.logIt(string.Format("NOT Found blue Block: "));
+                        b1 = b2;
                     }
-                    else
-                        Program.logIt(string.Format("NOT Found blue Block: "));
-                    b1 = b2;
                 }
                 catch (Exception) { }
             }
@@ -452,157 +628,227 @@ namespace testMQ
         }
         void read_imei()
         {
-            go_to_dialer(true,true);
-            // wait for dialer;
-            System.Threading.Thread.Sleep(2500);
-            KeyInput.getInstance().sendKey(0x50);
-            KeyInput.getInstance().sendKey(0x50);
-            KeyInput.getInstance().sendKey(0x52);
-            System.Threading.Thread.Sleep(2000);
-            // check diarler screen
-            // click *#06#
-            int i = 10;
-            // *
-            for (int j = 0; j < i; j++)
-                KeyInput.getInstance().sendKey(0x4f);
-            KeyInput.getInstance().sendKey(0x52);
-            System.Threading.Thread.Sleep(1000);
-            // #
-            i = 11;
-            for (int j = 0; j < i; j++)
-                KeyInput.getInstance().sendKey(0x4f);
-            KeyInput.getInstance().sendKey(0x52);
-            System.Threading.Thread.Sleep(1000);
-            // 0
-            i = 10;
-            for (int j = 0; j < i; j++)
-                KeyInput.getInstance().sendKey(0x4f);
-            KeyInput.getInstance().sendKey(0x52);
-            System.Threading.Thread.Sleep(1000);
-            // 6
-            i = 5;
-            for (int j = 0; j < i; j++)
-                KeyInput.getInstance().sendKey(0x4f);
-            KeyInput.getInstance().sendKey(0x52);
-            System.Threading.Thread.Sleep(1000);
-            // #
-            i = 11;
-            for (int j = 0; j < i; j++)
-                KeyInput.getInstance().sendKey(0x4f);
-            KeyInput.getInstance().sendKey(0x52);
-            //System.Threading.Thread.Sleep(1000);
-            // imei will display on the screen 
-            System.Threading.Thread.Sleep(2000);
-            Image<Bgra, Byte> b = new Image<Bgra, Byte>(current_image);
-            UMat uimage = new UMat();
-            CvInvoke.CvtColor(b, uimage, ColorConversion.Bgra2Gray);
-            MCvScalar m1 = new MCvScalar();
-            MCvScalar m2 = new MCvScalar();
-            CvInvoke.MeanStdDev(uimage, ref m1, ref m2);
-            Image<Gray, Byte> t = uimage.ToImage<Gray, Byte>().ThresholdBinary(new Gray(m1.V0 + m2.V0), new Gray(255));
-            Rectangle r = new Rectangle(0, t.Height / 2 - 200, t.Width, 200);
-            Image<Gray, Byte> roi = t.GetSubRect(r);
-            string s = ocrEng.ocr_easy(roi.Bitmap);
-            if(!string.IsNullOrEmpty(s))
+            Bitmap b1 = new Bitmap(current_raw_image);
+            go_to_dialer_v2(true,true);
+            Bitmap dialer = new Bitmap(@"C:\logs\pictures\dialer_keypad.jpg");
+            bool done = false;
+            while (!done)
             {
-                Program.logIt(string.Format("IMEI={0}", s));
+                b1 = new Bitmap(current_raw_image);
+                if (ImUtility.is_same_image(b1, dialer, 30))
+                {
+                    done = true;
+                }
             }
-            KeyInput.getInstance().sendKey(0x52);
-            System.Threading.Thread.Sleep(1000);
-            KeyInput.getInstance().sendKey(0x4a);
+
+
+            //if (false)
+            {
+                // wait for dialer;
+                //System.Threading.Thread.Sleep(2500);
+                //KeyInput.getInstance().sendKey(0x50);
+                //KeyInput.getInstance().sendKey(0x50);
+                //KeyInput.getInstance().sendKey(0x52);
+                System.Threading.Thread.Sleep(2000);
+                // check diarler screen
+                // click *#06#
+                int i = 10;
+                // *
+                for (int j = 0; j < i; j++)
+                    KeyInput.getInstance().sendKey(0x4f);
+                KeyInput.getInstance().sendKey(0x52);
+                System.Threading.Thread.Sleep(1000);
+                // #
+                i = 11;
+                for (int j = 0; j < i; j++)
+                    KeyInput.getInstance().sendKey(0x4f);
+                KeyInput.getInstance().sendKey(0x52);
+                System.Threading.Thread.Sleep(1000);
+                // 0
+                i = 10;
+                for (int j = 0; j < i; j++)
+                    KeyInput.getInstance().sendKey(0x4f);
+                KeyInput.getInstance().sendKey(0x52);
+                System.Threading.Thread.Sleep(1000);
+                // 6
+                i = 5;
+                for (int j = 0; j < i; j++)
+                    KeyInput.getInstance().sendKey(0x4f);
+                KeyInput.getInstance().sendKey(0x52);
+                System.Threading.Thread.Sleep(1000);
+                // #
+                i = 11;
+                for (int j = 0; j < i; j++)
+                    KeyInput.getInstance().sendKey(0x4f);
+                KeyInput.getInstance().sendKey(0x52);
+                //System.Threading.Thread.Sleep(1000);
+                // imei will display on the screen 
+                System.Threading.Thread.Sleep(2000);
+                Image<Bgr, Byte> b = new Image<Bgr, Byte>(current_image);
+                UMat uimage = new UMat();
+                CvInvoke.CvtColor(b, uimage, ColorConversion.Bgr2Gray);
+                MCvScalar m1 = new MCvScalar();
+                MCvScalar m2 = new MCvScalar();
+                CvInvoke.MeanStdDev(uimage, ref m1, ref m2);
+                Image<Gray, Byte> t = uimage.ToImage<Gray, Byte>().ThresholdBinary(new Gray(m1.V0 + m2.V0), new Gray(255));
+                Rectangle r = new Rectangle(0, t.Height / 2 - 200, t.Width, 200);
+                Image<Gray, Byte> roi = t.GetSubRect(r);
+                string s = ocrEng.ocr_easy(roi.Bitmap);
+                if (!string.IsNullOrEmpty(s))
+                {
+                    //Program.logIt(string.Format("IMEI={0}", s));
+                    MessageBox.Show(s, "IMEI");
+                }
+                //KeyInput.getInstance().sendKey(0x52);
+                //System.Threading.Thread.Sleep(1000);
+                //KeyInput.getInstance().sendKey(0x4a);
+            }
+        }
+        void go_to_dialer_v2(bool tap = false, bool clickhome = false)
+        {
+            if (clickhome) click_home();
+            int n = 20;
+            for (int i = 0; i < n; i++)
+            {
+                KeyInput.getInstance().sendKey(0x4f);
+                System.Threading.Thread.Sleep(100);
+            }
+            if (tap)
+                KeyInput.getInstance().sendKey(0x52);
         }
         void go_to_dialer(bool tap=false, bool clickhome = false)
         {
-            Tuple<bool, string, System.Collections.Generic.Dictionary<string, object>> ret = find_icon_by_label("phone");
-            if (ret.Item1)
+            if (clickhome) click_home();
+            // look for phone icon rectangle;
+            Rectangle[] phone_rect = null;
+            try
             {
-                if (clickhome)
+                Image<Bgr, Byte> img = new Image<Bgr, byte>(current_raw_image);
+                CascadeClassifier haar_email = new CascadeClassifier(@"trained\phone_cascade.xml");
+                phone_rect = haar_email.DetectMultiScale(img);
+                foreach (var r in phone_rect)
                 {
-                    click_home();
+                    Program.logIt(string.Format("{0}", r));
                 }
-                int page = -1;
-                if (Int32.TryParse(ret.Item2, out page))
+            }
+            catch (Exception) { }
+            if (phone_rect.Length > 0)
+            {
+                int n = 36;
+                bool done = false;
+                Rectangle rect = Rectangle.Empty;
+                Bitmap b1 = new Bitmap(current_raw_image);
+                while (!done && n>0)
                 {
-                    if (ret.Item3.ContainsKey("index"))
+                    DateTime _s = DateTime.Now;
+                    KeyInput.getInstance().sendKey(0x4f);
+                    n--;
+                    Bitmap b2 = new Bitmap(current_raw_image);
+                    do
                     {
-                        int step = (int)(int)ret.Item3["index"];
-                        byte k = 0x4f;
-                        if (step < 0)
+                        if ((DateTime.Now - _s).TotalSeconds > 3)
+                            break;
+                        System.Threading.Thread.Sleep(50);
+                        b2 = new Bitmap(current_raw_image);
+                    } while (ImUtility.is_same_image(b1,b2));
+                    b1 = b2;
+                    Tuple<bool, Rectangle, Bitmap> r = ImUtility.extrac_blue_block(b2, new Size(100, 100));
+                    if (r.Item1)
+                    {
+                        Program.logIt(string.Format("Found blue Block: {0}", r.Item2));
+                        foreach(Rectangle pr in phone_rect)
                         {
-                            k = 0x50;
-                            step = -step;
-                        }
-                        for (int i = 0; i < step; i++)
-                        {
-                            KeyInput.getInstance().sendKey(k);
-                            System.Threading.Thread.Sleep(100);
-                        }
-                        if (tap)
-                        {
-                            KeyInput.getInstance().sendKey(0x52);
-                            System.Threading.Thread.Sleep(2000);
+                            if(r.Item2.Contains(pr))
+                            {
+                                done = true;
+                                break;
+                            }
                         }
                     }
                 }
-            }
-            else
-            {
-                if (clickhome)
+                if (done)
                 {
-                    click_home();
-                }
-                KeyInput.getInstance().sendKey(0x50);
-                System.Threading.Thread.Sleep(100);
-                KeyInput.getInstance().sendKey(0x50);
-                System.Threading.Thread.Sleep(100);
-                KeyInput.getInstance().sendKey(0x50);
-                System.Threading.Thread.Sleep(100);
-                KeyInput.getInstance().sendKey(0x50);
-                System.Threading.Thread.Sleep(100);
-                if (tap)
-                {
-                    KeyInput.getInstance().sendKey(0x52);
-                    System.Threading.Thread.Sleep(2000);
+                    if(tap)
+                        KeyInput.getInstance().sendKey(0x52);
                 }
             }
         }
         void go_to_settings(bool tap=false, bool clickhome = false)
         {
-            Tuple<bool, string, System.Collections.Generic.Dictionary<string, object>> ret = find_icon_by_label("settings");
-            if (ret.Item1)
+            Program.logIt("go_to_settings: ++");
+            if (clickhome) click_home_v2();
+            // look for phone icon rectangle;
+            Rectangle[] phone_rect = null;
+            try
             {
-                if (clickhome)
+                Image<Bgr, Byte> img = new Image<Bgr, byte>(current_raw_image);
+                CascadeClassifier haar_email = new CascadeClassifier(@"trained\settings_cascade.xml");
+                phone_rect = haar_email.DetectMultiScale(img);
+                foreach (var r in phone_rect)
                 {
-                    click_home();
+                    Program.logIt(string.Format("setting={0}", r));
                 }
-                int page = -1;
-                if (Int32.TryParse(ret.Item2, out page))
+            }
+            catch (Exception) { }
+            if (phone_rect.Length > 0)
+            {
+                int n = 36;
+                bool done = false;
+                bool not_found = false;
+                //Bitmap home_screen = get_homescreen_without_bluebox();
+                Bitmap home_screen = new Bitmap(homescreen);
+                Point point_of_first_item = Point.Empty;
+                while (!done && n > 0 && !not_found)
                 {
-                    if (ret.Item3.ContainsKey("index"))
+                    Bitmap b = new Bitmap(current_raw_image);
+                    KeyInput.getInstance().sendKey(0x4f);
+                    waitForScreenChange(b, 30);
+                    b = new Bitmap(current_raw_image);
+                    Rectangle br = ImUtility.detect_blue_rectangle(home_screen, b);
+                    //Program.logIt(string.Format("Found blue Block: {0}", br));
+                    if (point_of_first_item.IsEmpty)
                     {
-                        int step = (int)(int)ret.Item3["index"];
-                        byte k = 0x4f;
-                        if (step < 0)
+                        point_of_first_item = new Point(br.X + br.Width / 2, br.Y + br.Height / 2);
+                        Program.logIt(string.Format("set first item: {0}", br));
+                    }
+                    else
+                    {
+                        if (br.Contains(point_of_first_item))
                         {
-                            k = 0x50;
-                            step = -step;
+                            Program.logIt(string.Format("Loop back to first item: {0}", br));
+                            not_found = true;
                         }
-                        for (int i = 0; i < step; i++)
+                    }
+                        
+                    foreach (Rectangle pr in phone_rect)
+                    {
+                        if (br.Contains(pr))
                         {
-                            KeyInput.getInstance().sendKey(k);
-                            System.Threading.Thread.Sleep(100);
-                        }
-                        if (tap)
-                        {
-                            KeyInput.getInstance().sendKey(0x52);
-                            System.Threading.Thread.Sleep(3000);
+                            done = true;
+                            break;
                         }
                     }
                 }
+                if (done)
+                {
+                    Program.logIt("go_to_settings: done.");
+                    if (tap)
+                    {
+                        Bitmap b = new Bitmap(current_raw_image);
+                        KeyInput.getInstance().sendKey(0x52);
+                        waitForScreenChange(b);
+                        waitForScreenStable(250, 4);
+                        //System.Threading.Thread.Sleep(delay);
+                        b = new Bitmap(current_raw_image);
+                        b.Save("temp_1.jpg");
+                    }
+                }
             }
+            Program.logIt("go_to_settings: --");
         }
         void get_icon_rectangle()
         {
+            /*
             System.Collections.Generic.Dictionary<int, Rectangle> homepage_icons = new Dictionary<int, Rectangle>();
             // click home
             KeyInput.getInstance().sendKey(0x4a);
@@ -780,7 +1026,7 @@ namespace testMQ
                 Crop c = new Crop(i.Value);
                 c.Apply(b1).Save(string.Format("icon_{0}.jpg", i.Key));
             }
-
+            */
         }
         void get_homescreen_icons(System.Collections.Generic.Dictionary<string, object> homescreeninfo, int page, Bitmap src=null)
         {
@@ -907,32 +1153,24 @@ namespace testMQ
                         {
                             try
                             {
+                                //using (FileStream stream = new FileStream(fn, FileMode.Open, FileAccess.Read))
+                                //{
+                                //    Image img = Image.FromStream(stream);
+                                //    bmp = new Bitmap(img);
+                                //}
                                 using (var bmpTemp = new Bitmap(fn))
                                 {
                                     bmp = new Bitmap(bmpTemp);
                                 }
-                                //bmp = new Bitmap(fn);                            
                                 break;
                             }
-                            catch (Exception) { }
+                            catch (Exception ex)
+                            {
+                                //Program.logIt(ex.Message);
+                            }
                         }
                     }
                 } while ((DateTime.Now - _s).TotalSeconds < 3);
-                //if (bmp != null)
-                //{
-                //    pictureBox1.Invoke(new MethodInvoker(delegate
-                //    {
-                //        try
-                //        {
-                //            pictureBox1.Image = bmp;
-                //        }
-                //        catch (Exception ex)
-                //        {
-                //            Program.logIt(ex.Message);
-                //            Program.logIt(ex.StackTrace);
-                //        }
-                //    }));
-                //}
             }
             catch (Exception ex)
             {
@@ -970,11 +1208,25 @@ namespace testMQ
                     Image<Bgr, Byte> img = new Image<Bgr, byte>(frame);
                     Image<Bgr, Byte> img1 = img.GetSubRect(frame_roi);
                     current_raw_image = new Bitmap(img1.Bitmap);
-                    current_image = new Bitmap(img1.Resize(0.75, Inter.Cubic).Bitmap);
+                    current_image = new Bitmap(img1.Resize(raw_to_show, Inter.Cubic).Bitmap);
                     pictureBox1.Invoke(new MethodInvoker(delegate
                     {
-                        //current_image = new Bitmap(current_raw_image);
+                        pictureBox1.Parent.ClientSize= current_image.Size;
+                        pictureBox1.Size = current_image.Size;                        
                         pictureBox1.Image = new Bitmap(current_image);
+                        if (busy)
+                        {
+                            using (Graphics g = Graphics.FromImage(pictureBox1.Image))
+                            {
+                                g.FillRectangle(new SolidBrush(Color.FromArgb(150, Color.DarkGray)), new Rectangle(0, 0, current_image.Width, current_image.Height));
+                                StringFormat format = new StringFormat();
+                                format.LineAlignment = StringAlignment.Center;
+                                format.Alignment = StringAlignment.Center;
+                                Font font = new Font("Times New Roman", 24.0f);
+                                g.DrawString(this.busy_text, font, Brushes.MediumVioletRed, pictureBox1.ClientRectangle, format);
+                            }
+                            //pictureBox1.Image = b;
+                        }                        
                     }));
                 }
                 //current_raw_image = new Bitmap(frame);
@@ -984,6 +1236,26 @@ namespace testMQ
                 //    pictureBox1.Image = new Bitmap(current_image);
                 //}));
             }
+        }
+
+        private async void closeAppsToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (!busy)
+            {
+                busy = true;
+                busy_text = "Close all apps in progress.\nPlease wait.";
+                await Task.Run(() =>
+                {
+                    go_to_top_of_setting();
+                    close_all_apps_v2();
+                });
+                busy = false;
+            }
+        }
+
+        private void stopScanningToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            KeyInput.getInstance().sendKey(0x48);
         }
     }
 }

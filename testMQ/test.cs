@@ -1,17 +1,4 @@
-﻿using Accord;
-using Accord.Controls;
-using Accord.Imaging;
-using Accord.Imaging.Filters;
-using Accord.Imaging.Formats;
-using Accord.IO;
-using Accord.MachineLearning;
-using Accord.MachineLearning.VectorMachines.Learning;
-using Accord.Math.Geometry;
-using Accord.Math;
-using Accord.Math.Optimization.Losses;
-using Accord.Statistics.Kernels;
-using Accord.Vision.Detection;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
@@ -145,6 +132,7 @@ namespace testMQ
         static void Main()
         {
             Program.logIt("Test Starts.");
+            //test_ocr();
             //test_text();
             //train_svm();
             //test_svm();
@@ -154,10 +142,10 @@ namespace testMQ
             //search_color();
             //Tuple<bool, Rectangle>  r= extra_blue_block_in_settings(new Bitmap(@"C:\test\setting_01.jpg"));
             //getMSSIM();
-            test_1();
+            //test_1();
             //test_haar_face();
             //ui_test();
-            //test3();
+            test3();
             //test_match();
             //test_ml();
             //test_ml_SMO();
@@ -228,76 +216,64 @@ namespace testMQ
         }
         static void camera_init()
         {
-            Mat img = CvInvoke.Imread(@"C:\test\save_01.jpg", ImreadModes.AnyColor);
+            Mat img = CvInvoke.Imread(@"C:\logs\pictures\save_10.jpg", ImreadModes.AnyColor);
             Tuple< bool, Rectangle, Bitmap> res = ImUtility.extrac_blue_block(img.Bitmap);
             if (res.Item3 != null && res.Item1)
             {
                 res.Item3.Save("temp_1.jpg");
             }
 
+            Tuple<bool, Rectangle> r = ImUtility.extra_blue_block_in_settings(img.Bitmap);
+            if (r.Item1 && !r.Item2.IsEmpty)
+            {
+                Bitmap b=ImUtility.crop_image(img.Bitmap, r.Item2);
+                b.Save("temp_2.jpg");
+            }
+
         }
         static void test3()
         {
-            Bitmap b1 = new Bitmap(@"C:\test\test_1\temp_1.jpg");
-            Bitmap b2 = new Bitmap(@"C:\test\test_1\temp_2.jpg");
-            Bitmap sl = new Bitmap(@"C:\test\scroll_left.jpg");
-            Image<Gray, Byte> slicon = new Image<Gray, byte>(sl);
-            slicon = slicon.Not();
-            slicon.Save("temp_1.jpg");
-            Tuple<bool, Rectangle, Bitmap> cm = ImUtility.extrac_context_menu(b1, b2);
-            if (cm.Item1 && cm.Item3 != null)
+            Bitmap b1 = new Bitmap(@"C:\logs\pictures\save_01.jpg");
+            Bitmap b2 = new Bitmap(@"C:\logs\pictures\save_06.jpg");
+            Rectangle r = ImUtility.detect_blue_rectangle(b1, b2);
+            Bitmap m = ImUtility.crop_image(b2, r);
+            m.Save("temp_1.jpg");
+            Image<Gray, Byte> mg = new Image<Gray, byte>(m);
+            Mat bg = new Mat();
+            CvInvoke.Threshold(mg, bg, 200, 255, ThresholdType.Binary);
+            bg.Save("temp_1.jpg");
+            double cannyThreshold = 180.0;
+            double cannyThresholdLinking = 120.0;
+            UMat cannyEdges = new UMat();
+            CvInvoke.Canny(mg, cannyEdges, cannyThreshold, cannyThresholdLinking);
+            r = Rectangle.Empty;
+            using (VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint())
             {
-                cm.Item3.Save("temp_1.jpg");
-                Image<Gray, Byte> uimage = new Image<Gray, Byte>(cm.Item3);
-                UMat pyrDown = new UMat();
-                //CvInvoke.PyrDown(uimage, pyrDown);
-                //CvInvoke.PyrUp(pyrDown, uimage);
-                CvInvoke.Threshold(uimage, pyrDown, 0, 255, ThresholdType.Binary | ThresholdType.Otsu);
-                uimage = pyrDown.ToImage<Gray, Byte>();
-                uimage.Save("temp_1.jpg");
-                double cannyThreshold = 180.0;
-                double cannyThresholdLinking = 120.0;
-                UMat cannyEdges = new UMat();
-                CvInvoke.Canny(uimage, cannyEdges, cannyThreshold, cannyThresholdLinking);
-                cannyEdges.Save("temp_1.jpg");
-                using (VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint())
+                CvInvoke.FindContours(bg, contours, null, RetrType.External, ChainApproxMethod.ChainApproxNone);
+                Image<Bgr, Byte> im = new Image<Bgr, byte>(m);
+                CvInvoke.DrawContours(im, contours, -1, new MCvScalar(0, 255, 255));
+                im.Save("temp_1.jpg");
+                int count = contours.Size;
+                for(int i = 0; i < count; i++)
                 {
-                    CvInvoke.FindContours(cannyEdges, contours, null, RetrType.External, ChainApproxMethod.ChainApproxNone);
-                    int count = contours.Size;
-                    for (int i = 0; i < count; i++)
+                    VectorOfPoint contour = contours[i];
+                    VectorOfPoint approxContour = new VectorOfPoint();
+                    double al = CvInvoke.ArcLength(contour, true);
+                    CvInvoke.ApproxPolyDP(contour, approxContour, al * 0.01, true);
+                    if (approxContour.Size == 4)
                     {
-                        VectorOfPoint contour = contours[i];
-                        VectorOfPoint approxContour = new VectorOfPoint();
-                        double al = CvInvoke.ArcLength(contour, true);
-                        CvInvoke.ApproxPolyDP(contour, approxContour, al * 0.05, true);
-                        if (approxContour.Size == 4)
+                        Rectangle rr = CvInvoke.BoundingRectangle(contours[i]);
+                        if (r.IsEmpty) r = rr;
+                        else
                         {
-                            double a1 = CvInvoke.ContourArea(contours[i], false);
-                            if (a1 > 100.0)
-                            {
-                                Rectangle r = CvInvoke.BoundingRectangle(contours[i]);
-                                Program.logIt(String.Format("{0}", r));
-                                using (Graphics g = Graphics.FromImage(cm.Item3))
-                                {
-                                    g.DrawRectangle(new Pen(Color.White), r);
-                                }
-                                if (r.Width == r.Height)
-                                {
-                                    uimage.GetSubRect(r).Save(string.Format("temp_{0}.jpg", i));
-                                }
-                                //Mat m = new Mat();
-                                //CvInvoke.MatchTemplate(slicon, uimage.GetSubRect(r), m, TemplateMatchingType.CcorrNormed);
-                                //double min=0;
-                                //double max = 0;
-                                //System.Drawing.Point minp = new System.Drawing.Point();
-                                //System.Drawing.Point maxp = new System.Drawing.Point();
-                                //CvInvoke.MinMaxLoc(m, ref min, ref max, ref minp, ref maxp);
-                            }
+                            if (rr.Width * rr.Height > r.Width * r.Height)
+                                r = rr;
                         }
                     }
                 }
-                cm.Item3.Save("temp_2.jpg");
             }
+            Program.logIt(string.Format("{0}", r));
+            //ImUtility.crop_image(m, r).Save("temp_2.jpg");
         }
         static void test_svm()
         {
@@ -444,316 +420,28 @@ namespace testMQ
 
             }
         }
-        static void extra_icon_from_home_screen_v2()
-        {
-            Bitmap f1 = ImageDecoder.DecodeFromFile(@"C:\test\save_00.jpg");
-            int top_margin = (int)(0.026 * f1.Height); // 26;
-            int left_margin = (int)(0.05 * f1.Width); //30;
-            int middle_margin = (int)(0.05 * f1.Height); //50;
-            int botton_line = (int)(0.13 * f1.Height); //130;
-            int total_col = 4;
-            int total_row = 6;
-            int w = (f1.Width - left_margin - left_margin) / total_col;
-            int h = (f1.Height - top_margin - botton_line - middle_margin) / total_row;
-            for (int row = 1; row <= 6; row++)
-            {
-                int x = left_margin;
-                int y = top_margin + h * (row - 1);
-                for (int col = 1; col <= 4; col++)
-                {
-                    x = 28 + w * (col - 1);
-                    Rectangle r = new Rectangle(x, y, 140, 140);
-                    Crop c = new Crop(r);
-                    Bitmap b = c.Apply(f1);
-                    b.Save(string.Format("icons\\temp_{0}x{1}.jpg", row, col));
-                }
-            }
-            // for dock
-            for (int col = 1; col <= 4; col++)
-            {
-                int x = left_margin + w * (col - 1);
-                int y = f1.Height - botton_line;
-                Rectangle r = new Rectangle(x, y, w, botton_line);
-                Crop c = new Crop(r);
-                Bitmap b = c.Apply(f1);
-                b.Save(string.Format("icons\\temp_0x{0}.jpg", col));
-            }
-        }
-        static void extra_icon_from_home_screen()
-        {
-            Bitmap f1 = ImageDecoder.DecodeFromFile(@"C:\test\save_12.jpg");
-            int row = 1;
-            int col = 1;
-            int x = 28;
-            int y = 18;
-            int xstep = 140;
-            int ystep = 145;
-            int ybottom = 930;
-            for (row = 1; row <= 6; row++)
-            {
-                x = 28;
-                y = 18 + ystep * (row - 1);
-                for (col = 1; col <= 4; col++)
-                {
-                    x = 28 + xstep * (col - 1);
-                    Rectangle r = new Rectangle(x, y, 140, 140);
-                    Crop c = new Crop(r);
-                    Bitmap b = c.Apply(f1);
-                    b.Save(string.Format("icons\\temp_{0}x{1}.jpg", row, col));
-                }
-            }
-            // for dock
-            for (col = 1; col <= 4; col++)
-            {
-                x = 28 + xstep * (col - 1);
-                Rectangle r = new Rectangle(x, ybottom, 140, 140);
-                Crop c = new Crop(r);
-                Bitmap b = c.Apply(f1);
-                b.Save(string.Format("icons\\temp_0x{0}.jpg", col));
-            }
-        }
-        static void test_2()
-        {
-            Bitmap f1 = ImageDecoder.DecodeFromFile(@"C:\Users\qa\Desktop\picture\save_10.jpg");
-            Program.logIt(string.Format("w={0}, h={0}", f1.Width, f1.Height));
-            ImageStatistics stat = new ImageStatistics(f1);
-            GaussianBlur gb = new GaussianBlur(2, 10);
-            Bitmap src = gb.Apply(f1);
-            src.Save("temp_2.jpg");
-            ColorFiltering cf = new ColorFiltering();
-            cf.Red = new IntRange(60, 130);
-            cf.Green = new IntRange(90, 200);
-            cf.Blue = new IntRange(150, 230);
-            Bitmap img = cf.Apply(src);
-            img.Save("temp_1.jpg");
-            Bitmap gs = Grayscale.CommonAlgorithms.BT709.Apply(img);
-            gs.Save("temp_2.jpg");
-            BlobCounter bc = new BlobCounter();
-            bc.BlobsFilter = null;
-            bc.MinHeight = 80;
-            bc.MinWidth = 80;
-            bc.CoupledSizeFiltering = true;
-            bc.FilterBlobs = true;
-            bc.ObjectsOrder = ObjectsOrder.Area;
-            bc.ProcessImage(gs);
-            Blob[] blobs = bc.GetObjectsInformation();
-            Blob roi = blobs[0];
-            List<IntPoint> ps = bc.GetBlobsEdgePoints(roi);
-            List<IntPoint> corners;
-            SimpleShapeChecker shapeChecker = new SimpleShapeChecker();
-            bool b = shapeChecker.IsQuadrilateral(ps, out corners);
-            var t = shapeChecker.CheckShapeType(ps);
-            var t1 = shapeChecker.CheckPolygonSubType(corners);
-            using (Graphics g = Graphics.FromImage(f1))
-            {
-                g.DrawRectangle(new Pen(Color.Yellow), roi.Rectangle);
-                List<System.Drawing.Point> sp = new List<System.Drawing.Point>();
-                foreach (var p in corners)
-                {
-                    sp.Add(new System.Drawing.Point(p.X, p.Y));
-                }
-                g.DrawLines(new Pen(Color.Red), sp.ToArray());
-            }
-            f1.Save("temp_3.jpg");
-            //int margin = 10;
-            //int w = (f1.Width - 2 * margin) / 4;
-            //for (int i = 0; i < 4; i++)
-            //{
-            //    Rectangle r = new Rectangle(margin + w * i, 0, w+margin, f1.Height);
-            //    Crop c = new Crop(r);
-            //    Bitmap b = c.Apply(f1);
-            //    b.Save(string.Format("temp_{0}.jpg", i + 1));
-            //}
 
-
-        }
         static void test_1()
         {
-            Mat img1 = CvInvoke.Imread(@"C:\test\pictures\ios11-settings-icon-100741874-large.jpg");
-            Mat img2 = CvInvoke.Imread(@"C:\test\save_01.jpg");
-            long l;
-            Mat m = DrawMatches.Draw(img1, img2, out l);
-            m.Save("temp_1.jpg");
-
-            // haar test
-            CascadeClassifier haar_email = new CascadeClassifier(@"trained\settings_cascade.xml");
-            Rectangle[] ret = haar_email.DetectMultiScale(img2);
-            foreach (Rectangle r in ret)
-                Program.logIt(string.Format("{0}", r));
-        }
-        static void test_ml_SMO()
-        {
-            double[][] features = new double[][]
+            Bitmap app = new Bitmap(@"C:\logs\pictures\save_12.jpg");
+            Bitmap app1 = new Bitmap(@"C:\logs\pictures\save_11.jpg");
+            
+            Tuple<bool, Rectangle, Bitmap> menu = ImUtility.extrac_context_menu(app, app1);
+            if(menu.Item1 && menu.Item3 != null)
             {
-                                new double[] { 1.73407600308642,0,5.62588471221633},
-                                new double[] { 53.6045780285494,8,79.2103241645548 },
-                                new double[] {  53.1015615354938,7,79.3755488866987 },
-                                new double[] {  53.2143330439815,7,79.3365665756378 },
-                                new double[]{ 8.12086950231481, 3, 11.8416794313788 },
-                                new double[]{ 4.01413675864101, 1, 13.026857481124 },
-            };
-            int[] labels = { -1, +1, +1, +1, +1, +1 };
-            var teacher = new SequentialMinimalOptimization<Linear>()
-            {
-                Complexity = 10000 // make a hard margin SVM
-            };
-            var svm = teacher.Learn(features, labels);
-            bool[] output = svm.Decide(features);
-            double error = new ZeroOneLoss(labels).Loss(output);
-
-            Bitmap f1 = ImageDecoder.DecodeFromFile(@"C:\Users\qa\Desktop\picture\save_10.jpg");
-            Bitmap f2 = ImageDecoder.DecodeFromFile(@"C:\Users\qa\Desktop\picture\save_11.jpg");
-            Bitmap f3 = ImageDecoder.DecodeFromFile(@"C:\Users\qa\Desktop\picture\save_12.jpg");
-            {
-                Bitmap g = Grayscale.CommonAlgorithms.BT709.Apply(f1);
-                ImageStatistics stat = new ImageStatistics(g);
-                double[][] ds = { new double[] { stat.Gray.Mean, stat.Gray.Median, stat.Gray.StdDev } };
-                Program.logIt(string.Format("{0},{1},{2}", ds[0][0], ds[0][1], ds[0][2]));
-                bool[] o = svm.Decide(ds);
+                menu.Item3.Save("temp_1.jpg");
             }
-            {
-                Bitmap mask = new Bitmap(f2.Width, f2.Height);
-                using (Graphics g = Graphics.FromImage(mask))
-                {
-                    g.FillRectangle(new SolidBrush(Color.Black), new Rectangle(0, 0, mask.Width, mask.Height));
-                }
-                //Bitmap g = Grayscale.CommonAlgorithms.BT709.Apply(mask);
-                ImageStatistics stat = new ImageStatistics(Grayscale.CommonAlgorithms.BT709.Apply(mask));
-                double[][] ds = { new double[] { stat.Gray.Mean, stat.Gray.Median, stat.Gray.StdDev } };
-                Program.logIt(string.Format("{0},{1},{2}", ds[0][0], ds[0][1], ds[0][2]));
-                bool[] o = svm.Decide(ds);
-            }
-            {
-                Subtract s = new Subtract(f1);
-                Bitmap r = s.Apply(f2);
-                r.Save("temp_1.jpg");
-                bool empty = CheckEmptyImageByML.getInstance().isImageEmpty(r);
-                Bitmap g = Grayscale.CommonAlgorithms.BT709.Apply(r);
-                ImageStatistics stat = new ImageStatistics(g);
-                double[][] ds = { new double[] { stat.Gray.Mean, stat.Gray.Median, stat.Gray.StdDev } };
-                Program.logIt(string.Format("{0},{1},{2}", ds[0][0], ds[0][1], ds[0][2]));
-                bool[] o = svm.Decide(ds);
-            }
-            {
-                Subtract s = new Subtract(f1);
-                Bitmap r = s.Apply(f3);
-                r.Save("temp_1.jpg");
-                bool empty = CheckEmptyImageByML.getInstance().isImageEmpty(r);
-                Bitmap g = Grayscale.CommonAlgorithms.BT709.Apply(r);
-                ImageStatistics stat = new ImageStatistics(g);
-                double[][] ds = { new double[] { stat.Gray.Mean, stat.Gray.Median, stat.Gray.StdDev } };
-                Program.logIt(string.Format("{0},{1},{2}", ds[0][0], ds[0][1], ds[0][2]));
-                bool[] o = svm.Decide(ds);
-            }
-
-        }
-        static void test_ml()
-        {
-            List<double[]> inputList = new List<double[]>();
-            // load all samles from "samples" folder,
-            //string s = System.Environment.CurrentDirectory;
-            foreach (string s in System.IO.Directory.GetFiles("samples"))
-            {
-                Bitmap b = ImageDecoder.DecodeFromFile(s);
-                Bitmap g = Grayscale.CommonAlgorithms.BT709.Apply(b);
-                ImageStatistics stat = new ImageStatistics(g);
-                double[] ds = new double[] { stat.Gray.Mean, stat.Gray.Median, stat.Gray.StdDev };
-                inputList.Add(ds);
-                Program.logIt(string.Format("{0},{1},{2}", ds[0], ds[1], ds[2]));
-            }
-            Accord.Math.Random.Generator.Seed = 0;
-            KMeans kmeans = new KMeans(2);
-            KMeansClusterCollection clusters = kmeans.Learn(inputList.ToArray());
-
-            // test
-            Bitmap f1 = ImageDecoder.DecodeFromFile(@"C:\test\save_00.jpg");
-            Bitmap f2 = ImageDecoder.DecodeFromFile(@"C:\test\save_01.jpg");
-            {
-                Bitmap g = Grayscale.CommonAlgorithms.BT709.Apply(f1);
-                ImageStatistics stat = new ImageStatistics(g);
-                double[][] ds = { new double[] { stat.Gray.Mean, stat.Gray.Median, stat.Gray.StdDev } };
-                Program.logIt(string.Format("{0},{1},{2}", ds[0][0], ds[0][1], ds[0][2]));
-                int[] res = clusters.Decide(ds);
-            }
-            {
-                Bitmap g = Grayscale.CommonAlgorithms.BT709.Apply(f2);
-                ImageStatistics stat = new ImageStatistics(g);
-                double[][] ds = { new double[] { stat.Gray.Mean, stat.Gray.Median, stat.Gray.StdDev } };
-                Program.logIt(string.Format("{0},{1},{2}", ds[0][0], ds[0][1], ds[0][2]));
-                int[] res = clusters.Decide(ds);
-            }
-            {
-                Bitmap mask = new Bitmap(f2.Width, f2.Height);
-                using (Graphics g = Graphics.FromImage(mask))
-                {
-                    g.FillRectangle(new SolidBrush(Color.Black), new Rectangle(0, 0, mask.Width, mask.Height));
-                }
-                //Bitmap g = Grayscale.CommonAlgorithms.BT709.Apply(mask);
-                ImageStatistics stat = new ImageStatistics(Grayscale.CommonAlgorithms.BT709.Apply(mask));
-                double[][] ds = { new double[] { stat.Gray.Mean, stat.Gray.Median, stat.Gray.StdDev } };
-                Program.logIt(string.Format("{0},{1},{2}", ds[0][0], ds[0][1], ds[0][2]));
-                int[] res = clusters.Decide(ds);
-            }
-            Tuple<bool, float, Bitmap> r = ImUtility.diff_images(f1, f2);
-            if (r.Item3 != null)
-            {
-                Bitmap g = Grayscale.CommonAlgorithms.BT709.Apply(r.Item3);
-                ImageStatistics stat = new ImageStatistics(g);
-                double[][] ds = { new double[] { stat.Gray.Mean, stat.Gray.Median, stat.Gray.StdDev } };
-                Program.logIt(string.Format("{0},{1},{2}", ds[0][0], ds[0][1], ds[0][2]));
-                int[] res = clusters.Decide(ds);
-            }
-
-            /*
-            double[][] observations =
-                {
-                    new double[] { -5, -2, -1 },
-                    new double[] { -5, -5, -6 },
-                    new double[] {  2,  1,  1 },
-                    new double[] {  1,  1,  2 },
-                    new double[] {  1,  2,  2 },
-                    new double[] {  3,  1,  2 },
-                    new double[] { 11,  5,  4 },
-                    new double[] { 15,  5,  6 },
-                    new double[] { 10,  5,  6 },
-                };
-            KMeans kmeans = new KMeans(2);
-            KMeansClusterCollection clusters = kmeans.Learn(observations);
-            int[] labels = clusters.Decide(observations);
-            */
-
-        }
-        static void test_haar_face()
-        {
-            Bitmap img1 = new Bitmap(@"C:\test\save_00.jpg");
-            Bitmap img2 = new Bitmap(@"C:\test\iphone_icon\setting_icon.jpg");
-            var surf = new SpeededUpRobustFeaturesDetector();
-            var points1 = surf.Transform(img1);
-            var points2 = surf.Transform(img2);
-            var matcher = new KNearestNeighborMatching(4);
-            Accord.IntPoint[][] matches = matcher.Match(points1, points2);
-
-            Concatenate concat = new Concatenate(img1);
-            Bitmap img3 = concat.Apply(img2);
-            PairsMarker pairs = new PairsMarker(
-                    matches[0], // Add image1's width to the X points
-                                // to show the markings correctly
-                    matches[1].Apply(pp => new IntPoint(pp.X + img1.Width, pp.Y)));
-            pairs.ApplyInPlace(img3);
-
-            img3.Save("temp_1.jpg");
-
-            List<double[]> data = new List<double[]>();
-            foreach (var v in matches[0])
-            {
-                data.Add(new double[] { v.X, v.Y });
-            }
-
-            KMeans kmeans = new KMeans(k: 4);
-            var clusters = kmeans.Learn(data.ToArray());
-            int[] labels = clusters.Decide(data.ToArray());
-
-
+            Image<Gray, byte> am = new Image<Gray, byte>(app);
+            // 
+            Mat t = CvInvoke.Imread(@"images\ios_close_icon.jpg", ImreadModes.Grayscale);
+            Mat m = new Mat();
+            CvInvoke.MatchTemplate(am, t, m, TemplateMatchingType.CcoeffNormed);
+            double max = 0;
+            double min = 0;
+            Point maxP = new Point();
+            Point minP = new Point();
+            CvInvoke.MinMaxLoc(m, ref min, ref max, ref minP, ref maxP);
+            Program.logIt(string.Format("{0}: {1}", max, new Rectangle(maxP, t.Size)));
         }
         public static void ui_test(Image<Bgra, Byte> src, System.Collections.Generic.Dictionary<string, object> locations)
         {
@@ -896,6 +584,21 @@ namespace testMQ
                     Program.logIt(string.Format("{0}-{1}", p1.Point, p2.Point));
                 }
             }
+        }
+        static void test_ocr()
+        {
+            Bitmap b = new Bitmap("temp_3.jpg");
+            //ocrEng.test(b);
+            Bitmap t = new Bitmap(@"C:\logs\pictures\ios_icons\ios_close_icon.jpg");
+            Image<Gray, Byte> b1 = new Image<Gray, byte>(b);
+            Image<Gray, Byte> t1 = new Image<Gray, byte>(t);
+            Mat m = new Mat();
+            CvInvoke.MatchTemplate(b1, t1, m, TemplateMatchingType.CcoeffNormed);
+            double min = 0;
+            double max = 0;
+            Point minP = new Point();
+            Point maxP = new Point();
+            CvInvoke.MinMaxLoc(m, ref min, ref max, ref minP, ref maxP);
         }
     }
 }

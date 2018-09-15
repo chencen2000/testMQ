@@ -19,9 +19,6 @@ namespace testMQ
         {
             //thisEng = new TesseractEngine(@"./tessdata", "eng", EngineMode.Default);
         }
-        public void test(Bitmap src)
-        {
-        }
         static public string ocr_easy(Bitmap src)
         {
             string ret = string.Empty;
@@ -29,6 +26,13 @@ namespace testMQ
             var res = eng.Process(src);
             ret = res.GetText();
             return ret;
+        }
+        static public void test(Bitmap src)
+        {
+            TesseractEngine eng = new TesseractEngine(@"./tessdata", "eng", EngineMode.Default);
+            var res = eng.Process(src);
+            var r1 = res.GetIterator();
+            var s = res.GetHOCRText(0, true);
         }
     }
     class MachineLearning
@@ -70,13 +74,25 @@ namespace testMQ
 
     class ImUtility
     {
+        public static Bitmap bitwies_and(Bitmap src, Bitmap mask)
+        {
+            Bitmap ret = null;
+            Image<Bgr, Byte> img1 = new Image<Bgr, byte>(src);
+            Image<Bgr, Byte> img2 = new Image<Bgr, byte>(mask);
+            Mat r = new Mat();
+            CvInvoke.BitwiseAnd(img1, img2, r);
+            ret = r.Bitmap;
+            return ret;
+        }
         public static double get_PSNR(Bitmap b1, Bitmap b2)
         {
             double psnr = 0.0;
             if (b1 != null && b2 != null)
             {
-                Image<Bgra, Byte> img1 = new Image<Bgra, byte>(b1);
-                Image<Bgra, Byte> img2 = new Image<Bgra, byte>(b2);
+                //Image<Bgra, Byte> img1 = new Image<Bgra, byte>(b1);
+                //Image<Bgra, Byte> img2 = new Image<Bgra, byte>(b2);
+                Image<Gray, Byte> img1 = new Image<Gray, byte>(b1);
+                Image<Gray, Byte> img2 = new Image<Gray, byte>(b2);
                 /*
                 Mat m1 = img1.Mat; // CvInvoke.Imread(@"C:\test\save_00.jpg", ImreadModes.AnyColor);
                 Mat m2 = img2.Mat; // CvInvoke.Imread(@"C:\test\save_01.jpg", ImreadModes.AnyColor);
@@ -180,59 +196,70 @@ namespace testMQ
             //source.Save("temp_1.jpg");
             return ret;
         }
-        public static Rectangle[] detect_blue_rectangle(Image<Bgr, Byte> img1, Image<Bgr, Byte> img2)
+        public static Bitmap extract_different_mask(Bitmap b1, Bitmap b2)
         {
-            List<Rectangle> ret = new List<Rectangle>();
-            if (img1.Size == img2.Size)
+            Bitmap ret = null;
+            Image<Gray, Byte> img1 = new Image<Gray, byte>(b1);
+            Image<Gray, Byte> img2 = new Image<Gray, byte>(b2);
+            Mat diff = new Mat();
+            CvInvoke.AbsDiff(img1, img2, diff);
+            Mat tmp = new Mat();
+            CvInvoke.Threshold(diff, tmp, 0, 255, ThresholdType.Binary | ThresholdType.Otsu);
+            diff = tmp;
+            using (VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint())
             {
-                Image<Bgr, Byte> diff = img2.AbsDiff(img1);
-                UMat uimage = new UMat();
-                CvInvoke.CvtColor(diff, uimage, ColorConversion.Bgr2Gray);
-                UMat pyrDown = new UMat();
-                CvInvoke.PyrDown(uimage, pyrDown);
-                CvInvoke.PyrUp(pyrDown, uimage);
-                MCvScalar m1 = new MCvScalar();
-                MCvScalar m2 = new MCvScalar();
-                CvInvoke.MeanStdDev(uimage, ref m1, ref m2);
-                Image<Gray, Byte> t = uimage.ToImage<Gray, Byte>().ThresholdBinary(new Gray(m1.V0 + m2.V0), new Gray(255));
-                uimage = t.ToUMat();
-                //uimage.Save("temp_1.jpg");
-                using (VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint())
+                CvInvoke.FindContours(diff, contours, null, RetrType.External, ChainApproxMethod.ChainApproxNone);
+                int count = contours.Size;
+                double m = 0.0;
+                int idx = -1;
+                for (int i = 0; i < count; i++)
                 {
-                    //Matrix<int> hierarchy = new Matrix<int>(1, contours.Size);
-                    Mat hierarchy = new Mat();
-                    CvInvoke.FindContours(uimage, contours, hierarchy, RetrType.External, ChainApproxMethod.ChainApproxNone);
-                    int count = contours.Size;
-                    for (int i = 0; i < count; i++)
+                    double d = CvInvoke.ContourArea(contours[i]);
+                    if (d > m)
                     {
-                        RotatedRect rr = CvInvoke.MinAreaRect(contours[i]);
-                        Rectangle r = rr.MinAreaRect();
-                        //System.Diagnostics.Trace.WriteLine(string.Format("rect={0}", r));
-                        if (r.Width > 50 && r.Height > 50 && r.X >= 0 && r.Y >= 0)
-                        {
-
-                            //System.Diagnostics.Trace.WriteLine(string.Format("[{1}]: rect={0}", r, i));
-                            ret.Add(r);
-                            //CvInvoke.Rectangle(diff, rr.MinAreaRect(), new MCvScalar(255, 255, 0, 0));
-                            /*
-                            using (VectorOfPoint contour = contours[i])
-                            using (VectorOfPoint approxContour = new VectorOfPoint())
-                            {
-                                CvInvoke.ApproxPolyDP(contour, approxContour, CvInvoke.ArcLength(contour, true) * 0.05, false);
-                            }
-                            */
-                        }
+                        m = d;
+                        idx = i;
                     }
                 }
-                //diff.Save("temp_3.jpg");
+                if (idx >= 0)
+                {
+                    tmp= Mat.Ones(img2.Mat.Rows, img2.Mat.Cols, img2.Mat.Depth, img2.Mat.NumberOfChannels);
+                    VectorOfVectorOfPoint vvp = new VectorOfVectorOfPoint();
+                    vvp.Push(contours[idx]);
+                    CvInvoke.FillPoly(tmp, vvp, new MCvScalar(255));
+                    CvInvoke.CvtColor(tmp, diff, ColorConversion.Gray2Bgr);
+                    ret = diff.Bitmap;
+                }
             }
-            if (ret.Count > 2)
+            return ret;
+        }
+        public static Rectangle detect_blue_rectangle(Bitmap b1, Bitmap b2)
+        {
+            Rectangle ret = Rectangle.Empty;
+            Image<Bgr, Byte> img1 = new Image<Bgr, byte>(b1);
+            Image<Bgr, Byte> img2 = new Image<Bgr, byte>(b2);
+            Mat diff = new Mat();
+            CvInvoke.AbsDiff(img1, img2, diff);
+            Mat tmp = new Mat();
+            CvInvoke.CvtColor(diff, tmp, ColorConversion.Bgr2Gray);
+            CvInvoke.Threshold(tmp, diff, 0, 255, ThresholdType.Binary | ThresholdType.Otsu);
+            using (VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint())
             {
-                ret = new List<Rectangle>(MachineLearning.blue_block_filter(ret.ToArray()));
+                CvInvoke.FindContours(diff, contours, null, RetrType.External, ChainApproxMethod.ChainApproxNone);
+                int count = contours.Size;
+                double m = 0.0;
+                for(int i = 0; i < count; i++)
+                {
+                    double d = CvInvoke.ContourArea(contours[i]);
+                    if (d > m)
+                    {
+                        m = d;
+                        ret = CvInvoke.BoundingRectangle(contours[i]);
+                    }
+                }
             }
-            foreach(var r in ret)
-                System.Diagnostics.Trace.WriteLine(string.Format("rect={0}", r));
-            return ret.ToArray();
+            Program.logIt(string.Format("detect_blue_rectangle: -- {0}", ret));
+            return ret;
         }
         public static Rectangle[] detect_blue_rectangle_1(Image<Bgr, Byte> img1, Image<Bgr, Byte> img2)
         {
@@ -316,8 +343,26 @@ namespace testMQ
             }
             return ret.ToArray();
         }
-
-        public static bool is_same_image(Bitmap f1, Bitmap f2, double threshold=50.0)
+        public static bool is_all_image_same(Bitmap []bmps, double threshold = 50.0)
+        {
+            bool ret = false;
+            if (bmps != null && bmps.Length>0)
+            {
+                Bitmap b0 = bmps[0];
+                bool all_same = true;
+                foreach(Bitmap b in bmps)
+                {
+                    if (!is_same_image(b, b0, threshold))
+                    {
+                        all_same = false;
+                        break;
+                    }
+                }
+                ret = all_same;
+            }
+            return ret;
+        }
+        public static bool is_same_image(Bitmap f1, Bitmap f2, double threshold=30.0)
         {
             bool ret = false;
             if (f1 != null && f2 != null)
@@ -700,8 +745,8 @@ namespace testMQ
             Mat img1 = new Mat();
             CvInvoke.GaussianBlur(b1, img1, new Size(7, 7), 0);
             //img1.Save("temp_1.jpg");
-            Bgr c1 = new Bgr(160, 150, 70);
-            Bgr c2 = new Bgr(240, 230, 150);
+            Bgr c1 = new Bgr(200, 100, 0);
+            Bgr c2 = new Bgr(255, 220, 50);
             Image<Gray, Byte> g1 = (img1.ToImage<Bgr, Byte>()).InRange(c1, c2);
             //g1.Save("temp_2.jpg");
             using (VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint())
