@@ -14,6 +14,10 @@ using Emgu.CV.Features2D;
 using Emgu.CV.ML;
 using Emgu.CV.Flann;
 using Emgu.CV.Text;
+using HtmlAgilityPack;
+using System.Xml;
+using System.Collections;
+using System.IO;
 
 namespace testMQ
 {
@@ -132,6 +136,8 @@ namespace testMQ
         static void Main()
         {
             Program.logIt("Test Starts.");
+            test_similarity();
+            //test_ppm();
             //test_ocr();
             //test_text();
             //train_svm();
@@ -142,10 +148,10 @@ namespace testMQ
             //search_color();
             //Tuple<bool, Rectangle>  r= extra_blue_block_in_settings(new Bitmap(@"C:\test\setting_01.jpg"));
             //getMSSIM();
-            //test_1();
+            test_2();
             //test_haar_face();
             //ui_test();
-            test3();
+            //test3();
             //test_match();
             //test_ml();
             //test_ml_SMO();
@@ -153,21 +159,38 @@ namespace testMQ
             //var jss = new System.Web.Script.Serialization.JavaScriptSerializer();
             //System.Collections.Generic.Dictionary<string, object> d = jss.Deserialize<System.Collections.Generic.Dictionary<string, object>>(System.IO.File.ReadAllText("HomeScreenLayout.json"));
             //test_base64();
+            //capture_screen();
+        }
+        static void capture_screen()
+        {
+            System.Threading.Thread.Sleep(5000);
+            Bitmap memoryImage = new Bitmap(Screen.PrimaryScreen.Bounds.Width, Screen.PrimaryScreen.Bounds.Height);
+            Graphics g = Graphics.FromImage(memoryImage);
+            g.CopyFromScreen(0, 0, 0, 0, memoryImage.Size);
+            memoryImage.Save("temp_1.jpg");
         }
         static void test_text()
         {
-            Mat img = CvInvoke.Imread(@"C:\test\menu_item.jpg", ImreadModes.Grayscale);
-            Mat channels = new Mat();
-            //Emgu.CV.Text.TextInvoke.ComputeNMChannels(img, channels);
-            ERFilterNM1 f1 = new ERFilterNM1(@"C:\Users\qa\PycharmProjects\test\data\trained_classifierNM1.xml");
-            VectorOfERStat regions = new VectorOfERStat();
-            f1.Run(img, regions);
-            ERFilterNM2 f2 = new ERFilterNM2(@"C:\Users\qa\PycharmProjects\test\data\trained_classifierNM2.xml");
-            f2.Run(img, regions);
-            int n = regions.Size;
-            for(int i = 0; i < n; i++)
+            string s = @"test.json";
+            if (System.IO.File.Exists(s))
             {
-                MCvERStat ers = regions[i];
+                var jss = new System.Web.Script.Serialization.JavaScriptSerializer();
+                var obj = jss.Deserialize<System.Collections.Generic.Dictionary<string, object>>(System.IO.File.ReadAllText(s));
+                ArrayList a = (ArrayList)obj["mobileQ"];
+                var b =(Dictionary<string,object>) a[0];
+                b = (Dictionary<string, object>)a[1];
+                if (b.ContainsKey("timestamp"))
+                {
+                    var i = b["timestamp"];
+                }
+                if (b.ContainsKey("check"))
+                {
+                    var d = (ArrayList)b["check"];
+                    int[] dd = d.OfType<int>().ToArray();
+                    byte[] bytes = dd.Select(x => (byte)x).ToArray();
+                    //Byte[] dd = (Byte[])d.ToArray(typeof(Byte));
+                    System.IO.File.WriteAllBytes("temp_1.jpg", bytes);
+                }
             }
         }
         static void test_base64()
@@ -238,42 +261,33 @@ namespace testMQ
             Rectangle r = ImUtility.detect_blue_rectangle(b1, b2);
             Bitmap m = ImUtility.crop_image(b2, r);
             m.Save("temp_1.jpg");
-            Image<Gray, Byte> mg = new Image<Gray, byte>(m);
-            Mat bg = new Mat();
-            CvInvoke.Threshold(mg, bg, 200, 255, ThresholdType.Binary);
-            bg.Save("temp_1.jpg");
-            double cannyThreshold = 180.0;
-            double cannyThresholdLinking = 120.0;
-            UMat cannyEdges = new UMat();
-            CvInvoke.Canny(mg, cannyEdges, cannyThreshold, cannyThresholdLinking);
-            r = Rectangle.Empty;
-            using (VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint())
+            //ImUtility.crop_image(m, r).Save("temp_2.jpg");
+            if (m != null)
             {
-                CvInvoke.FindContours(bg, contours, null, RetrType.External, ChainApproxMethod.ChainApproxNone);
-                Image<Bgr, Byte> im = new Image<Bgr, byte>(m);
-                CvInvoke.DrawContours(im, contours, -1, new MCvScalar(0, 255, 255));
-                im.Save("temp_1.jpg");
-                int count = contours.Size;
-                for(int i = 0; i < count; i++)
+                Image<Gray, Byte> bb1 = new Image<Gray, byte>(m);
+                Mat tmp = new Mat();
+                CvInvoke.Threshold(bb1, tmp, 0, 255, ThresholdType.Binary | ThresholdType.Otsu);
+                tmp.Save("temp_1.jpg");
+                Rectangle ret = Rectangle.Empty;
+                using (VectorOfVectorOfPoint contours = new VectorOfVectorOfPoint())
                 {
-                    VectorOfPoint contour = contours[i];
-                    VectorOfPoint approxContour = new VectorOfPoint();
-                    double al = CvInvoke.ArcLength(contour, true);
-                    CvInvoke.ApproxPolyDP(contour, approxContour, al * 0.01, true);
-                    if (approxContour.Size == 4)
+                    CvInvoke.FindContours(tmp, contours, null, RetrType.External, ChainApproxMethod.ChainApproxNone);
+                    int count = contours.Size;
+                    double mx = 0.0;
+                    for (int i = 0; i < count; i++)
                     {
-                        Rectangle rr = CvInvoke.BoundingRectangle(contours[i]);
-                        if (r.IsEmpty) r = rr;
-                        else
+                        double d = CvInvoke.ContourArea(contours[i]);
+                        if (d > mx)
                         {
-                            if (rr.Width * rr.Height > r.Width * r.Height)
-                                r = rr;
+                            mx = d;
+                            ret = CvInvoke.BoundingRectangle(contours[i]);
+                            Program.logIt(string.Format("{0}: {1}", d, ret));
                         }
                     }
                 }
+                Image<Bgr, Byte> b = new Image<Bgr, byte>(m);
+                b.GetSubRect(ret).Save("temp_2.jpg");
             }
-            Program.logIt(string.Format("{0}", r));
-            //ImUtility.crop_image(m, r).Save("temp_2.jpg");
         }
         static void test_svm()
         {
@@ -423,17 +437,17 @@ namespace testMQ
 
         static void test_1()
         {
-            Bitmap app = new Bitmap(@"C:\logs\pictures\save_12.jpg");
-            Bitmap app1 = new Bitmap(@"C:\logs\pictures\save_11.jpg");
+            Bitmap app = new Bitmap(@"C:\logs\pictures\save_11.jpg");
+            Bitmap app1 = new Bitmap(@"C:\logs\pictures\save_12.jpg");
             
             Tuple<bool, Rectangle, Bitmap> menu = ImUtility.extrac_context_menu(app, app1);
             if(menu.Item1 && menu.Item3 != null)
             {
                 menu.Item3.Save("temp_1.jpg");
             }
-            Image<Gray, byte> am = new Image<Gray, byte>(app);
+            Image<Bgr, byte> am = new Image<Bgr, byte>(menu.Item3);
             // 
-            Mat t = CvInvoke.Imread(@"images\ios_close_icon.jpg", ImreadModes.Grayscale);
+            Mat t = CvInvoke.Imread(@"C:\logs\pictures\ios_icons\scroll.jpg");
             Mat m = new Mat();
             CvInvoke.MatchTemplate(am, t, m, TemplateMatchingType.CcoeffNormed);
             double max = 0;
@@ -587,18 +601,123 @@ namespace testMQ
         }
         static void test_ocr()
         {
-            Bitmap b = new Bitmap("temp_3.jpg");
-            //ocrEng.test(b);
-            Bitmap t = new Bitmap(@"C:\logs\pictures\ios_icons\ios_close_icon.jpg");
-            Image<Gray, Byte> b1 = new Image<Gray, byte>(b);
-            Image<Gray, Byte> t1 = new Image<Gray, byte>(t);
-            Mat m = new Mat();
-            CvInvoke.MatchTemplate(b1, t1, m, TemplateMatchingType.CcoeffNormed);
-            double min = 0;
-            double max = 0;
-            Point minP = new Point();
-            Point maxP = new Point();
-            CvInvoke.MinMaxLoc(m, ref min, ref max, ref minP, ref maxP);
+            Bitmap b = new Bitmap(@"temp_menu.jpg");
+            string s = ocrEng.test(b);
+            var doc = new HtmlAgilityPack.HtmlDocument();
+            try
+            {
+                doc.LoadHtml(s);
+                if (doc.ParseErrors.Count() == 0)
+                {
+                    HtmlNode root = doc.DocumentNode;
+                    var ocr_line = doc.DocumentNode.SelectNodes("//span[@class='ocr_line']");
+                    foreach(var l in ocr_line)
+                    {
+                        Program.logIt(l.InnerText);
+                    }
+                }
+            }
+            catch (Exception) { }
+        }
+        public static Bitmap ReadBitmapFromPPM(string file)
+        {
+            var reader = new BinaryReader(new FileStream(file, FileMode.Open));
+            if (reader.ReadChar() != 'P' || reader.ReadChar() != '6')
+                return null;
+            reader.ReadChar(); //Eat newline
+            string widths = "", heights = "";
+            char temp;
+            while ((temp = reader.ReadChar()) != ' ')
+                widths += temp;
+            while ((temp = reader.ReadChar()) >= '0' && temp <= '9')
+                heights += temp;
+            if (reader.ReadChar() != '2' || reader.ReadChar() != '5' || reader.ReadChar() != '5')
+                return null;
+            reader.ReadChar(); //Eat the last newline
+            int width = int.Parse(widths),
+                height = int.Parse(heights);
+            Bitmap bitmap = new Bitmap(width, height);
+            //Read in the pixels
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
+                    bitmap.SetPixel(x, y, Color.FromArgb(reader.ReadByte(), reader.ReadByte(), reader.ReadByte()));
+                    //bitmap.SetPixel(x, y, new Bitmap.Color()
+                    //{
+                    //    Red = reader.ReadByte(),
+                    //    Green = reader.ReadByte(),
+                    //    Blue = reader.ReadByte()
+                    //});
+            return bitmap;
+        }
+        static void test_ppm()
+        {
+            //string folder = @"C:\projects\local\ca3\ca3";
+            //foreach(string fn in System.IO.Directory.GetFiles(folder, "*.ppm"))
+            //{
+            //    ReadBitmapFromPPM(fn).Save("temp_1.jpg");
+            //}
+            //ReadBitmapFromPPM(@"C:\projects\svn\FDDev\GreenT Enterprise\Tools\AirPlay\AirplaySdkExample\Debug\screen\frame_0.ppm").Save("temp_1.bmp");
+            byte[] data = System.IO.File.ReadAllBytes(@"C:\projects\svn\FDDev\GreenT Enterprise\Tools\AirPlay\release\screen\label_1.ppm");
+            Bitmap b = ImUtility.fromPPM(data);
+            b.Save("temp_1.jpg");
+            //Bitmap b1 = new Bitmap(@"C:\projects\svn\FDDev\GreenT Enterprise\Tools\AirPlay\release\screen\label_1.ppm");
+        }
+        static void test_similarity()
+        {
+            Bitmap b1 = new Bitmap("temp_2.jpg");
+            Bitmap t = new Bitmap(@"C:\logs\pictures\ios_icons\scroll_right_icon.jpg");
+            //Image<Gray, Byte> b11 = new Image<Gray, byte>(b1);
+            //Image<Gray, Byte> t11 = new Image<Gray, byte>(t);
+            //Mat m = new Mat();
+            //CvInvoke.Threshold(b11, m, 0, 255, ThresholdType.Otsu | ThresholdType.Binary);
+            //b1 = m.Bitmap;
+            //CvInvoke.Threshold(t11, m, 0, 255, ThresholdType.Otsu | ThresholdType.Binary);
+            //t = m.Bitmap;
+            var res = ImUtility.multiscale_matchtemplate(b1, t);
+        }
+        public static Tuple<double, Point, Rectangle> multiscale_matchtemplate(Bitmap src, Bitmap template, double threshold = 0.95)
+        {
+            double retD = 0.0;
+            Point retP = Point.Empty;
+            Rectangle retR = Rectangle.Empty;
+            if (src != null && template != null && src.Width > template.Width && src.Height > template.Height)
+            {
+                Image<Bgr, Byte> img1 = new Image<Bgr, Byte>(src);
+                Image<Bgr, Byte> it = new Image<Bgr, Byte>(template);
+                Mat resized = new Mat();
+                Mat res = new Mat();
+                for (double d = 0.95; d < 1.05 && retD<threshold; d = d + 0.003)
+                {
+                    CvInvoke.Resize(it, resized, new Size(0, 0), d, d);
+                    CvInvoke.MatchTemplate(img1, resized, res, TemplateMatchingType.CcoeffNormed);
+                    double min = 0;
+                    double max = 0;
+                    Point minP = new Point();
+                    Point maxP = new Point();
+                    CvInvoke.MinMaxLoc(res, ref min, ref max, ref minP, ref maxP);
+                    if (max > threshold)
+                    {
+                        retD = max;
+                        retP = maxP;
+                        retR = new Rectangle(retP, resized.Size);
+                        Program.logIt(string.Format("s={0}, r{1}", retD, d));
+                    }
+                }
+            }
+            return new Tuple<double, Point, Rectangle>(retD, retP, retR);
+        }
+        static void test_2()
+        {
+            //Bitmap b1 = new Bitmap(@"C:\logs\pictures\save_09.jpg");
+            //Bitmap b2 = new Bitmap(@"C:\logs\pictures\save_10.jpg");
+            //// remove fringe 30 pixel
+            //Bitmap b11 = ImUtility.crop_image(b1, new Rectangle(0, 30, b1.Width, b1.Height - 30));
+            //Bitmap b21 = ImUtility.crop_image(b2, new Rectangle(0, 30, b2.Width, b2.Height - 30));
+            //Tuple<bool, Rectangle, Bitmap> menu = extrac_context_menu(b11, b21);
+            //if(menu.Item1 && menu.Item3 != null)
+            //{
+            //    menu.Item3.Save("temp_1.jpg");
+            //}
         }
     }
 }

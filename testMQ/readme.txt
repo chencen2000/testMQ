@@ -74,3 +74,7 @@ iphone 6s: 1334-by-750-pixel resolution at 326 ppi
 homepage blue size
 normal: 141x196; row=6
 zoomed: 125x179; row=5,
+
+
+http://ip:21173/getConnectedDevicesList
+http://ip:21173/getScreen?deviceId={deviceId}

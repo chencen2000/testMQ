@@ -1,0 +1,7 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<mobileQ>
+  <action>
+    <key char="0x4a" count="1" delay="500" wait="true"/>
+    <wait interval="250" framecount="6" threshold="50" timeout="15"/>    
+  </action>
+</mobileQ>

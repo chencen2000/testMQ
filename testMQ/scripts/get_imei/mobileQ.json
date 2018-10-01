@@ -1,0 +1,76 @@
+{
+  "mobileQ": [
+    {
+      "action": "gotohome",
+      "timestamp": 636737341029453000
+    },
+    {
+      "action": "tapxy",
+      "x": 89,
+      "y": 950,
+      "key": 82,
+      "timestamp": 636737341074652900,
+      "image": "xhahnbyc.jpg"
+    },
+    {
+      "action": "tapxy",
+      "x": 408,
+      "y": 993,
+      "key": 82,
+      "timestamp": 636737341249832300,
+      "image": "xfaakmxq.jpg"
+    },
+    {
+      "action": "tapxy",
+      "x": 118,
+      "y": 701,
+      "key": 82,
+      "timestamp": 636737341379027700,
+      "image": "kucfp4af.jpg"
+    },
+    {
+      "action": "tapxy",
+      "x": 433,
+      "y": 701,
+      "key": 82,
+      "timestamp": 636737341467246100,
+      "image": "qmgsolgk.jpg"
+    },
+    {
+      "action": "tapxy",
+      "x": 294,
+      "y": 700,
+      "key": 82,
+      "timestamp": 636737341569309800,
+      "image": "p50wea5v.jpg"
+    },
+    {
+      "action": "tapxy",
+      "x": 444,
+      "y": 426,
+      "key": 82,
+      "timestamp": 636737341659058400,
+      "image": "jml0t3yi.jpg"
+    },
+    {
+      "action": "tapxy",
+      "x": 452,
+      "y": 709,
+      "key": 82,
+      "timestamp": 636737341729312000,
+      "image": "r1jdg0sa.jpg"
+    },
+    {
+      "action": "tapxy",
+      "x": 258,
+      "y": 881,
+      "key": 82,
+      "timestamp": 636737341853159300,
+      "image": "vcagiezu.jpg"
+    },
+    {
+      "action": "gotohome",
+      "timestamp": 636737341897591200
+    }
+  ]
+}

@@ -4,15 +4,18 @@ using Emgu.CV;
 using Emgu.CV.CvEnum;
 using Emgu.CV.Structure;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Xml;
 
 namespace testMQ
 {
@@ -34,6 +37,8 @@ namespace testMQ
         DateTime last_frame_time = DateTime.Now - new TimeSpan(1, 0, 0);
         //double frame_angle = 0.0;
         bool busy = false;
+        bool recording = false;
+        Queue<Dictionary<string, object>> recording_actions = null;
         string busy_text = string.Empty;
         double raw_to_show = 0.75;
         Rectangle frame_roi = Rectangle.Empty;
@@ -143,47 +148,108 @@ namespace testMQ
                     {
                         tapXY(new Point((int)x, (int)y), 0x52);
                     });
-
-                    //System.Threading.ThreadPool.QueueUserWorkItem(o =>
-                    //{
-                    //    tapXY(new Point((int)x, (int)y), 0x52);
-                    //});
                 }
                 else if (e.Button == MouseButtons.Right)
                 {
-                    //tapXY(new Point((int)x, (int)y), 0x51);
+                    await Task.Run(() =>
+                    {
+                        tapXY(new Point((int)x, (int)y));
+                    });
                 }
                 busy = false;
             }
         }
 
-        void tapXY(Point XY, byte key)
+        void tapXY(Point XY, byte key=0, Bitmap checkpoint=null)
         {
             Program.logIt(string.Format("tapXY: ++ {0}", XY));
             Tuple<Bitmap, Rectangle> page = get_first_item_rectangle();
             Point center_of_first_item = new Point(page.Item2.X + page.Item2.Width / 2, page.Item2.Y + page.Item2.Height / 2);
             bool done = false;
             Bitmap b;
-            while(!done && page.Item1!=null)
+            // for recording:
+            System.Collections.Generic.Dictionary<string, object> dict = new Dictionary<string, object>();
+            dict.Add("action", "tapxy");
+            dict.Add("x", XY.X);
+            dict.Add("y", XY.Y);
+            dict.Add("key", key);
+            dict.Add("timestamp", DateTime.Now.Ticks);
+            bool skip = false;
+            // check first item
+            if (page.Item2.Contains(XY))
             {
-                //page.Item1.Save("temp_1.jpg");
-                b = new Bitmap(current_raw_image);
-                KeyInput.getInstance().sendKey(0x4f);
-                waitForScreenChange(b);
-                b = new Bitmap(current_raw_image);
-                Rectangle br = ImUtility.detect_blue_rectangle(page.Item1, b);
-                if (br.Contains(XY))
+                if (key != 0)
                 {
+                    //using (MemoryStream ms = new MemoryStream())
+                    //{
+                    //    current_raw_image.Save(ms, System.Drawing.Imaging.ImageFormat.Jpeg);
+                    //    dict.Add("check", ms.ToArray());
+                    //}       
+                    dict.Add("image", current_raw_image);
+                    if (checkpoint != null)
+                    {
+                        if (!ImUtility.is_same_image(checkpoint, current_raw_image))
+                        {
+                            Program.logIt("check image Not same.");
+                            skip = true;
+                        }
+                    }
                     // found;
-                    KeyInput.getInstance().sendKey(key);
-                    break;
+                    if(!skip)
+                        KeyInput.getInstance().sendKey(key);
                 }
-                if (br.Contains(center_of_first_item))
+            }
+            else
+            {
+                while (!done && page.Item1 != null)
                 {
-                    // loop back
-                    Program.logIt("look back to the first item");
-                    break;
+                    //page.Item1.Save("temp_1.jpg");
+                    b = new Bitmap(current_raw_image);
+                    KeyInput.getInstance().sendKey(0x4f);
+                    waitForScreenChange(b);
+                    b = new Bitmap(current_raw_image);
+                    Rectangle br = ImUtility.detect_blue_rectangle(page.Item1, b);
+                    br.Inflate((int)(0 - 0.15 * br.Width), (int)(0 - 0.15 * br.Height));
+                    if (br.Contains(XY))
+                    {
+                        // found;
+                        if (key != 0)
+                        {
+                            //using (MemoryStream ms = new MemoryStream())
+                            //{
+                            //    current_raw_image.Save(ms, System.Drawing.Imaging.ImageFormat.Jpeg);
+                            //    dict.Add("check", ms.ToArray());
+                            //}
+                            dict.Add("image", current_raw_image);
+                            if (checkpoint != null)
+                            {
+                                // remove fringe 30 pixel
+                                Bitmap b1 = ImUtility.crop_image(checkpoint, new Rectangle(0, 30, checkpoint.Width, checkpoint.Height - 30));
+                                Bitmap b2 = ImUtility.crop_image(current_raw_image, new Rectangle(0, 30, current_raw_image.Width, current_raw_image.Height - 30));
+                                //if (!ImUtility.is_same_image(checkpoint, current_raw_image))
+                                if (!ImUtility.is_same_image(b1, b2))
+                                {
+                                    current_raw_image.Save("temp_1.jpg");
+                                    Program.logIt("check image Not same.");
+                                    skip = true;
+                                }
+                            }
+                            if(!skip)
+                                KeyInput.getInstance().sendKey(key);
+                        }
+                        break;
+                    }
+                    if (br.Contains(center_of_first_item))
+                    {
+                        // loop back
+                        Program.logIt("look back to the first item");
+                        break;
+                    }
                 }
+            }
+            if (recording_actions != null)
+            {
+                recording_actions.Enqueue(dict);
             }
             Program.logIt(string.Format("tapXY: --"));
         }
@@ -195,31 +261,78 @@ namespace testMQ
 
         private void moveNextItemToolStripMenuItem_Click(object sender, EventArgs e)
         {
+            if (recording_actions != null)
+            {
+                System.Collections.Generic.Dictionary<string, object> dict = new Dictionary<string, object>();
+                dict.Add("action", "key");
+                dict.Add("char", 0x4f);
+                dict.Add("timestamp", DateTime.Now.Ticks);
+                recording_actions.Enqueue(dict);
+            }
             KeyInput.getInstance().sendKey(0x4f);
         }
 
         private void movePreviusItemToolStripMenuItem_Click(object sender, EventArgs e)
         {
+            if (recording_actions != null)
+            {
+                System.Collections.Generic.Dictionary<string, object> dict = new Dictionary<string, object>();
+                dict.Add("action", "key");
+                dict.Add("char", 0x50);
+                dict.Add("timestamp", DateTime.Now.Ticks);
+                recording_actions.Enqueue(dict);
+            }
             KeyInput.getInstance().sendKey(0x50);
         }
 
         private void selectItemToolStripMenuItem_Click(object sender, EventArgs e)
         {
+            if (recording_actions != null)
+            {
+                System.Collections.Generic.Dictionary<string, object> dict = new Dictionary<string, object>();
+                dict.Add("action", "key");
+                dict.Add("char", 0x51);
+                dict.Add("timestamp", DateTime.Now.Ticks);
+                recording_actions.Enqueue(dict);
+            }
             KeyInput.getInstance().sendKey(0x51);
         }
 
         private void tapToolStripMenuItem_Click(object sender, EventArgs e)
         {
+            if (recording_actions != null)
+            {
+                System.Collections.Generic.Dictionary<string, object> dict = new Dictionary<string, object>();
+                dict.Add("action", "key");
+                dict.Add("char", 0x52);
+                dict.Add("timestamp", DateTime.Now.Ticks);
+                recording_actions.Enqueue(dict);
+            }
             KeyInput.getInstance().sendKey(0x52);
         }
 
         private void goToHomeToolStripMenuItem_Click(object sender, EventArgs e)
         {
+            if (recording_actions != null)
+            {
+                System.Collections.Generic.Dictionary<string, object> dict = new Dictionary<string, object>();
+                dict.Add("action", "gotohome");
+                dict.Add("timestamp", DateTime.Now.Ticks);
+                recording_actions.Enqueue(dict);
+            }
             KeyInput.getInstance().sendKey(0x4a);
         }
 
         private void appSwitchToolStripMenuItem_Click(object sender, EventArgs e)
         {
+            if (recording_actions != null)
+            {
+                System.Collections.Generic.Dictionary<string, object> dict = new Dictionary<string, object>();
+                dict.Add("action", "key");
+                dict.Add("char", 0x4d);
+                dict.Add("timestamp", DateTime.Now.Ticks);
+                recording_actions.Enqueue(dict);
+            }
             KeyInput.getInstance().sendKey(0x4d);
         }
 
@@ -236,7 +349,7 @@ namespace testMQ
             Bitmap b0 = res.Item1;
             Rectangle firstR = res.Item2;
             Bitmap b2 = new Bitmap(current_raw_image);
-            if(ImUtility.is_same_image(b1,b2))
+            if (ImUtility.is_same_image(b1, b2))
             {
                 //Rectangle br = ImUtility.detect_blue_rectangle(b0, b1);
                 homescreen = b0;
@@ -264,7 +377,7 @@ namespace testMQ
             KeyInput.getInstance().sendKey(0x4d);
             bool done = false;
             // wait for change
-            while(!done)
+            while (!done)
             {
                 System.Threading.Thread.Sleep(500);
                 Bitmap bmp = (Bitmap)current_image.Clone();
@@ -280,7 +393,7 @@ namespace testMQ
                 }
             }
             // app swtich
-            Rectangle r = new Rectangle(0, 0, homescreen.Width, homescreen.Height *6/ 10);
+            Rectangle r = new Rectangle(0, 0, homescreen.Width, homescreen.Height * 6 / 10);
             done = false;
             while (!done)
             {
@@ -335,7 +448,7 @@ namespace testMQ
                     foreach (KeyValuePair<string, object> pkv in page)
                     {
                         System.Collections.Generic.Dictionary<string, object> info = (System.Collections.Generic.Dictionary<string, object>)pkv.Value;
-                        if (info.ContainsKey("rectangle") && info["rectangle"].GetType()==typeof(Rectangle))
+                        if (info.ContainsKey("rectangle") && info["rectangle"].GetType() == typeof(Rectangle))
                         {
                             Rectangle r = (Rectangle)info["rectangle"];
                             if (!r.IsEmpty)
@@ -368,7 +481,7 @@ namespace testMQ
             Program.logIt(string.Format("waitForScreenChange: -- ret={0}", ret));
             return ret;
         }
-        bool waitForScreenStable(int interval=200, int framecount=5, int threshold = 50, int timeout = 5)
+        bool waitForScreenStable(int interval = 200, int framecount = 5, int threshold = 50, int timeout = 5)
         {
             Program.logIt("waitForScreenStable: ++");
             bool ret = false;
@@ -403,6 +516,7 @@ namespace testMQ
         }
         Tuple<Bitmap, Rectangle> get_first_item_rectangle()
         {
+            Program.logIt("get_first_item_rectangle: ++");
             Bitmap retB = null;
             Rectangle retR = Rectangle.Empty;
             Bitmap b1 = new Bitmap(current_raw_image);
@@ -412,9 +526,10 @@ namespace testMQ
             retB = new Bitmap(current_raw_image);
             KeyInput.getInstance().sendKey(0x4f);
             System.Threading.Thread.Sleep(200);
-            waitForScreenChange(retB,30);
+            waitForScreenChange(retB, 30);
             b1 = new Bitmap(current_raw_image);
             retR = ImUtility.detect_blue_rectangle(retB, b1);
+            Program.logIt(string.Format("get_first_item_rectangle: -- rect={0}", retR));
             return new Tuple<Bitmap, Rectangle>(retB, retR);
         }
         void close_all_apps_v2()
@@ -450,11 +565,29 @@ namespace testMQ
                 Bitmap app1 = new Bitmap(current_raw_image);
                 //app1.Save("temp_2.jpg");
                 Tuple<bool, Rectangle, Bitmap> menu = ImUtility.extrac_context_menu(app, app1);
-                Image<Gray, Byte> am = null;
                 if (menu.Item1 && menu.Item3 != null)
                 {
+                    Bitmap t = new Bitmap(@"images\ios_close_icon.jpg");
+                    Tuple<double, Point, Rectangle> r = ImUtility.multiscale_matchtemplate(menu.Item3, t);
+                    Program.logIt(string.Format("look for close icon: {0}: {1}", r.Item1, new Rectangle(r.Item2, t.Size)));
+                    if (r.Item1 > 0.95)
+                    {
+                        // found.
+                        KeyInput.getInstance().sendKey(0x4f);
+                        System.Threading.Thread.Sleep(500);
+                        KeyInput.getInstance().sendKey(0x52);
+                        System.Threading.Thread.Sleep(1000);
+                        //app1 = new Bitmap(current_raw_image);
+                        waitForScreenStable();
+                    }
+                    else
+                    {
+                        done = true;
+                    }
+
                     //menu.Item3.Save("temp_3.jpg");
                     //am = new Image<Gray, byte>(menu.Item3);
+                    /*
                     am = new Image<Gray, byte>(app1);
                     // 
                     Mat t = CvInvoke.Imread(@"images\ios_close_icon.jpg", ImreadModes.Grayscale);
@@ -480,37 +613,246 @@ namespace testMQ
                     {
                         done = true;
                     }
+                    */
                 }
                 else
                     done = true;
             }
             Program.logIt("close_all_apps_v2: --");
         }
-        void test()
+        void scroll_screen(string way="right")
         {
+            Program.logIt(string.Format("Scroll screen: ++ {0}", way));
+            // popup context menu
             Bitmap b1 = new Bitmap(current_raw_image);
             KeyInput.getInstance().sendKey(0x51);
             waitForScreenChange(b1);
             waitForScreenStable();
             Bitmap b2 = new Bitmap(current_raw_image);
-            Rectangle r = ImUtility.detect_blue_rectangle(b1, b2);
-            Bitmap menu = ImUtility.crop_image(b2, r);
-            menu.Save("temp_1.jpg");
-            Mat m = new Mat();
-            Image<Gray, Byte> img1 = new Image<Gray, byte>(menu);
-            Image<Gray, Byte> sl = new Image<Gray, byte>(@"C:\logs\pictures\ios_icons\scroll_right_icon.jpg");
-            CvInvoke.MatchTemplate(img1, sl, m, TemplateMatchingType.CcoeffNormed);
-            double min = 0;
-            double max = 0;
-            Point minP = new Point();
-            Point maxP = new Point();
-            CvInvoke.MinMaxLoc(m, ref min, ref max, ref minP, ref maxP);
-            Program.logIt(string.Format("max={0}, point={1}", max, maxP));
-            //KeyInput.getInstance().sendKey(0x48);
-            //KeyInput.getInstance().sendKey(0x48);
-            KeyInput.getInstance().sendKey(0x50);
-            KeyInput.getInstance().sendKey(0x51);
+            Rectangle rmenu = ImUtility.detect_blue_rectangle(b1, b2);
+            Bitmap menu = ImUtility.crop_image(b2, rmenu);
+            if (menu != null)
+            {
+                //menu.Save("temp_1.jpg");
+                Tuple<double, Point, Rectangle> res = ImUtility.multiscale_matchtemplate(menu, new Bitmap(string.Format(@"images\scroll_{0}_icon.jpg", way)));
+                if (res.Item1 > 0.95)
+                {
+                    Point targetP = new Point(res.Item3.X + res.Item3.Width / 2, res.Item3.Y + res.Item3.Height / 2);
+                    Program.logIt(string.Format("found scroll {0} icon. location={1}, similarity={2}", way, targetP, res.Item1));
+                    // move cursor to the location and click
+                    Point firstP = Point.Empty;
+                    bool done = false;
+                    do
+                    {
+                        Tuple<bool, Rectangle, Bitmap> mi = ImUtility.find_focused_menu(menu);
+                        if(mi.Item1 && !mi.Item2.IsEmpty)
+                        {
+                            Program.logIt(string.Format("focus item: {0}", mi.Item2));
+                            if (firstP.IsEmpty)
+                            {
+                                firstP = new Point(mi.Item2.X + mi.Item2.Width / 2, mi.Item2.Y + mi.Item2.Height / 2);
+                            }
+                            else
+                            {
+                                if (mi.Item2.Contains(firstP))
+                                {
+                                    // on first item point
+                                    Program.logIt(string.Format("found first item: {0}", mi.Item2));
+                                    done = true;
+                                }
+                            }
+                            if (mi.Item2.Contains(targetP))
+                            {
+                                // on target point;
+                                Program.logIt(string.Format("found target item: {0}", mi.Item2));
+                                b1 = new Bitmap(current_raw_image);
+                                KeyInput.getInstance().sendKey(0x52);
+                                waitForScreenChange(b1);
+                                done = true;
+                                waitForScreenStable();
+                            }
+                            else
+                            {
+                                // move next
+                                b1 = new Bitmap(current_raw_image);
+                                KeyInput.getInstance().sendKey(0x4f);
+                                waitForScreenChange(b1);
+                                b2 = new Bitmap(current_raw_image);
+                                menu = ImUtility.crop_image(b2, rmenu);
+                            }
+                        }
+                        else
+                        {
+                            // fail to find focus menu item.
+                            Program.logIt("fail to find focus the menu item.");
+                            break;
+                        }
+                    } while (!done);
+                }
+                else
+                {
+                    Program.logIt(string.Format("fail to find scroll {0} icon. similarity={1}", way, res.Item1));
+                }
+
+                // esc context menu
+                b1 = new Bitmap(current_raw_image);
+                KeyInput.getInstance().sendKey(0x48);
+                waitForScreenChange(b1);
+                b1 = new Bitmap(current_raw_image);
+                KeyInput.getInstance().sendKey(0x48);
+                waitForScreenChange(b1);
+                KeyInput.getInstance().sendKey(0x50);
+                KeyInput.getInstance().sendKey(0x51);
+            }
+            else
+            {
+                Program.logIt("fail to popup context menu");
+            }
+            Program.logIt(string.Format("Scroll screen: --"));
         }
+        void scroll_screen_v2(string way = "right")
+        {
+            //click_home_v2();
+            Bitmap b1 = new Bitmap(current_raw_image);
+            Bitmap org_screen = new Bitmap(b1);
+            KeyInput.getInstance().sendKey(0x51);
+            waitForScreenChange(b1);
+            Bitmap b2 = new Bitmap(current_raw_image);
+            Tuple<bool, Rectangle, Bitmap> menu = ImUtility.extrac_context_menu(b1, b2);
+            Bitmap m1 = null;
+            Rectangle rmenu = Rectangle.Empty;
+            if (menu.Item1 && menu.Item3 != null)
+            {
+                m1 = new Bitmap(menu.Item3);
+                rmenu = menu.Item2;
+                m1.Save("temp_1.jpg");
+            }
+            if (m1 != null)
+            {
+                Tuple<double, Point, Rectangle> res = ImUtility.multiscale_matchtemplate(m1, new Bitmap(string.Format(@"images\scroll_icon.jpg")));
+                Program.logIt(string.Format("Try to find scroll_icon: similarity={0}, rec={1}", res.Item1, res.Item3));
+                if (res.Item1 > 0.95)
+                {
+                    Point targetP = new Point(res.Item3.X + res.Item3.Width / 2, res.Item3.Y + res.Item3.Height / 2);
+                    Program.logIt(string.Format("found scroll con. location={0}, similarity={1}", targetP, res.Item1));
+                    // move cursor to the location and click
+                    Point firstP = Point.Empty;
+                    bool done = false;
+                    do
+                    {
+                        Tuple<bool, Rectangle, Bitmap> mi = ImUtility.find_focused_menu(m1);
+                        Program.logIt(string.Format("focus item: {0}", mi.Item2));
+                        if (firstP.IsEmpty)
+                        {
+                            firstP = new Point(mi.Item2.X + mi.Item2.Width / 2, mi.Item2.Y + mi.Item2.Height / 2);
+                        }
+                        else
+                        {
+                            if (mi.Item2.Contains(firstP))
+                            {
+                                // on first item point
+                                Program.logIt(string.Format("found first item: {0}", mi.Item2));
+                                done = true;
+                            }
+                        }
+                        if (mi.Item2.Contains(targetP))
+                        {
+                            // on target point;
+                            Program.logIt(string.Format("found target item: {0}", mi.Item2));
+                            b1 = new Bitmap(current_raw_image);
+                            KeyInput.getInstance().sendKey(0x52);
+                            waitForScreenChange(b1);
+                            done = true;
+                            waitForScreenStable();
+                        }
+                        else
+                        {
+                            // move next
+                            b1 = new Bitmap(current_raw_image);
+                            KeyInput.getInstance().sendKey(0x4f);
+                            waitForScreenChange(b1);
+                            b2 = new Bitmap(current_raw_image);
+                            m1 = ImUtility.crop_image(b2, rmenu);
+                        }
+                    } while (!done);
+
+                    // enter the scroll sub_menu, 
+                    //string way = "left";
+                    b2 = new Bitmap(current_raw_image);
+                    menu = ImUtility.extrac_context_menu(org_screen, b2);
+                    m1 = null;
+                    rmenu = Rectangle.Empty;
+                    if (menu.Item1 && menu.Item3 != null)
+                    {
+                        m1 = new Bitmap(menu.Item3);
+                        rmenu = menu.Item2;
+                        m1.Save("temp_2.jpg");
+                    }
+                    if(m1!=null)
+                    {
+                        res = ImUtility.multiscale_matchtemplate(m1, new Bitmap(string.Format(@"images\scroll_{0}_icon.jpg", way)));
+                        Program.logIt(string.Format("found scroll {0} icon. location={1}, similarity={2}", way, res.Item3, res.Item1));
+                        if (res.Item1 > 0.95)
+                        {
+                            targetP = new Point(res.Item3.X + res.Item3.Width / 2, res.Item3.Y + res.Item3.Height / 2);
+                            Program.logIt(string.Format("found scroll con. location={0}, similarity={1}", targetP, res.Item1));
+                            // move cursor to the location and click
+                            firstP = Point.Empty;
+                            done = false;
+                            do
+                            {
+                                Tuple<bool, Rectangle, Bitmap> mi = ImUtility.find_focused_menu(m1);
+                                Program.logIt(string.Format("focus item: {0}", mi.Item2));
+                                if (firstP.IsEmpty)
+                                {
+                                    firstP = new Point(mi.Item2.X + mi.Item2.Width / 2, mi.Item2.Y + mi.Item2.Height / 2);
+                                }
+                                else
+                                {
+                                    if (mi.Item2.Contains(firstP))
+                                    {
+                                        // on first item point
+                                        Program.logIt(string.Format("found first item: {0}", mi.Item2));
+                                        done = true;
+                                    }
+                                }
+                                if (mi.Item2.Contains(targetP))
+                                {
+                                    // on target point;
+                                    Program.logIt(string.Format("found target item: {0}", mi.Item2));
+                                    b1 = new Bitmap(current_raw_image);
+                                    KeyInput.getInstance().sendKey(0x52);
+                                    waitForScreenChange(b1);
+                                    done = true;
+                                    waitForScreenStable();
+                                }
+                                else
+                                {
+                                    // move next
+                                    b1 = new Bitmap(current_raw_image);
+                                    KeyInput.getInstance().sendKey(0x4f);
+                                    waitForScreenChange(b1);
+                                    b2 = new Bitmap(current_raw_image);
+                                    m1 = ImUtility.crop_image(b2, rmenu);
+                                }
+                            } while (!done);
+                        }
+                    }
+                }
+
+                // exit menu
+                // exit menu
+                b2 = new Bitmap(current_raw_image);
+                KeyInput.getInstance().sendKey(0x48);
+                waitForScreenChange(b2);
+                b2 = new Bitmap(current_raw_image);
+                KeyInput.getInstance().sendKey(0x48);
+                waitForScreenChange(b2);
+                KeyInput.getInstance().sendKey(0x50);
+                KeyInput.getInstance().sendKey(0x51);
+            }
+        }
+        void test() { }
         private async void testToolStripMenuItem_Click(object sender, EventArgs e)
         {
             if (!busy)
@@ -519,7 +861,9 @@ namespace testMQ
                 this.busy_text = "Testing in progress.\n Please wait.";
                 await Task.Run(() =>
                 {
+                    Program.logIt("test: ++");
                     test();
+                    Program.logIt("test: --");
                 });
                 this.busy = false;
             }
@@ -580,7 +924,7 @@ namespace testMQ
         {
             Program.logIt("click_home_v2: ++");
             KeyInput.getInstance().sendKey(0x4a);
-            waitForScreenStable(250, 6, 50, 15);
+            waitForScreenStable(250, 4, 50, 15);
             //Bitmap b = new Bitmap(current_raw_image);
             //b.Save("temp_1.jpg");
             if (homescreen == null)
@@ -1129,6 +1473,27 @@ namespace testMQ
                 read_imei();
             });
         }
+        Bitmap get_image_v2()
+        {
+            Bitmap ret = null;
+            try
+            {
+                string url = @"http://localhost:21173/getScreen?label=1";
+                WebClient wc = new WebClient();
+                byte[] data = wc.DownloadData(url);
+                using (var ms = new MemoryStream(data))
+                {
+                    ret = new Bitmap(ms);
+                    //ret = ImUtility.fromPPM(data);
+                }
+            }
+            catch(Exception ex)
+            {
+                Program.logIt(ex.Message);
+                Program.logIt(ex.StackTrace);
+            }
+            return ret;
+        }
         Bitmap get_image()
         {
             string fn = @"C:\projects\local\xindawn-airplay-sdk-example\screen.jpeg";
@@ -1182,7 +1547,7 @@ namespace testMQ
         private void timer1_Tick(object sender, EventArgs e)
         {
             // get frame
-            Bitmap frame = get_image();
+            Bitmap frame = get_image_v2();
             if (frame != null)
             {
                 if(frame_roi.IsEmpty)
@@ -1256,6 +1621,499 @@ namespace testMQ
         private void stopScanningToolStripMenuItem_Click(object sender, EventArgs e)
         {
             KeyInput.getInstance().sendKey(0x48);
+        }
+
+        private async void upToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (!busy)
+            {
+                busy = true;
+                busy_text = "Scroll Up in progress.\nPlease wait.";
+                await Task.Run(() =>
+                {
+                    if (recording_actions != null)
+                    {
+                        System.Collections.Generic.Dictionary<string, object> dict = new Dictionary<string, object>();
+                        dict.Add("action", "scroll");
+                        dict.Add("way", "up");
+                        dict.Add("timestamp", DateTime.Now.Ticks);
+                        recording_actions.Enqueue(dict);
+                    }
+                    scroll_screen_v2("up");
+                });
+                busy = false;
+            }            
+        }
+
+        private async void downToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (!busy)
+            {
+                busy = true;
+                busy_text = "Scroll Down in progress.\nPlease wait.";
+                await Task.Run(() =>
+                {
+                    if (recording_actions != null)
+                    {
+                        System.Collections.Generic.Dictionary<string, object> dict = new Dictionary<string, object>();
+                        dict.Add("action", "scroll");
+                        dict.Add("way", "down");
+                        dict.Add("timestamp", DateTime.Now.Ticks);
+                        recording_actions.Enqueue(dict);
+                    }
+                    scroll_screen_v2("down");
+                });
+                busy = false;
+            }
+        }
+
+        private async void leftToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (!busy)
+            {
+                busy = true;
+                busy_text = "Scroll Left in progress.\nPlease wait.";
+                await Task.Run(() =>
+                {
+                    if (recording_actions != null)
+                    {
+                        System.Collections.Generic.Dictionary<string, object> dict = new Dictionary<string, object>();
+                        dict.Add("action", "scroll");
+                        dict.Add("way", "left");
+                        dict.Add("timestamp", DateTime.Now.Ticks);
+                        recording_actions.Enqueue(dict);
+                    }
+                    scroll_screen_v2("left");
+                });
+                busy = false;
+            }
+        }
+
+        private async void rightToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (!busy)
+            {
+                busy = true;
+                busy_text = "Scroll Right in progress.\nPlease wait.";
+                await Task.Run(() =>
+                {
+                    if (recording_actions != null)
+                    {
+                        System.Collections.Generic.Dictionary<string, object> dict = new Dictionary<string, object>();
+                        dict.Add("action", "scroll");
+                        dict.Add("way", "right");
+                        dict.Add("timestamp", DateTime.Now.Ticks);
+                        recording_actions.Enqueue(dict);
+                    }
+                    scroll_screen_v2("right");
+                });
+                busy = false;
+            }
+        }
+
+        private async void goToSettingsToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (!busy)
+            {
+                busy = true;
+                busy_text = "Go to Settings in progress.\nPlease wait.";
+                await Task.Run(() =>
+                {
+                    go_to_settings(true, true);
+                });
+                busy = false;
+            }
+        }
+        void run_script(string folder)
+        {
+            Program.logIt(string.Format("run_script: ++ {0}", folder));
+            try
+            {
+                string fn = System.IO.Path.Combine(folder, "mobileQ.json");
+                if (System.IO.File.Exists(fn))
+                {
+                    var jss = new System.Web.Script.Serialization.JavaScriptSerializer();
+                    var mq = jss.Deserialize<Dictionary<string, object>>(System.IO.File.ReadAllText(fn));
+                    if (mq.ContainsKey("mobileQ"))
+                    {
+                        ArrayList a = (ArrayList)mq["mobileQ"];
+                        foreach(var obj in a)
+                        {
+                            Dictionary<string, object> data = (Dictionary<string, object>)obj;
+                            string action = data.ContainsKey("action") ? data["action"] as string : string.Empty;
+                            if (!string.IsNullOrEmpty(action))
+                            {
+                                if (string.Compare(action, "gotohome", true) == 0)
+                                {
+                                    click_home_v2();
+                                }
+                                else if (string.Compare(action, "key", true) == 0)
+                                {
+                                    if(data.ContainsKey("char"))
+                                    {
+                                        KeyInput.getInstance().sendKey((byte)data["char"]);
+                                    }
+                                }
+                                else if (string.Compare(action, "scroll", true) == 0)
+                                {
+                                    if (data.ContainsKey("way"))
+                                    {
+                                        string s = data["way"] as string;
+                                        scroll_screen(s);
+                                    }
+                                }
+                                else if (string.Compare(action, "tapxy", true) == 0)
+                                {
+                                    int x = data.ContainsKey("x") ? (int)data["x"] : -1;
+                                    int y = data.ContainsKey("y") ? (int)data["y"] : -1; ;
+                                    int k = data.ContainsKey("key") ? (int)data["key"] : -1; ;
+                                    string s = data.ContainsKey("image") ? data["image"] as string : string.Empty;
+                                    s = System.IO.Path.Combine(folder, s);
+                                    if (x > 0 && y > 0)
+                                    {
+                                        Bitmap b = null;
+                                        if (System.IO.File.Exists(s))
+                                            b = new Bitmap(s);
+                                        tapXY(new Point(x, y), (Byte)k, b);
+                                    }
+                                }
+                            }
+
+                            waitForScreenStable();
+                        }
+                    }
+                }
+            }
+            catch(Exception ex)
+            {
+                Program.logIt(ex.Message);
+                Program.logIt(ex.StackTrace);
+            }
+            Program.logIt(string.Format("run_script: --"));
+        }
+        public void run_script_file(string filename)
+        {
+            Program.logIt(string.Format("run_script_file: ++ {0}", filename));
+            XmlDocument sd = new XmlDocument();
+            try { sd.Load(filename); }
+            catch (Exception) { }
+            if (sd.DocumentElement != null)
+            {
+                string s = sd.DocumentElement.Name;
+                foreach(XmlNode n in sd.DocumentElement.ChildNodes)
+                {
+                    if(n.NodeType==XmlNodeType.Element && string.Compare(n.Name, "action") == 0)
+                    {
+                        run_script_action(n);
+                    }
+                }
+            }
+            sd.Save(filename);
+            Program.logIt(string.Format("run_script_file: --"));
+        }
+        private void run_script_action(XmlNode node)
+        {
+            Program.logIt(string.Format("run_script_action: ++ {0}", node.OuterXml));
+            if (node!=null && node.NodeType == XmlNodeType.Element && string.Compare(node.Name, "action") == 0)
+            {
+                bool err = false;
+                //foreach(XmlNode n in node.ChildNodes)
+                //{
+                //    string s = n.Name;
+                //    if (string.Compare(s, "save") == 0)
+                //        run_script_savenode(n);
+                //    if (string.Compare(s, "check") == 0)
+                //        err = !run_script_checknode(n);
+                //    else if (string.Compare(s, "key") == 0)
+                //        run_script_keynode(n);
+                //    else if (string.Compare(s, "wait") == 0)
+                //        run_script_waitnode(n);
+                //    else
+                //    {
+                //        Program.logIt(string.Format("Not support: {0}", n.OuterXml));
+                //    }
+                //    if (err)
+                //    {
+                //        Program.logIt("Error occurs.");
+                //        break;
+                //    }
+                //}
+                if (node["precheck"] != null)
+                    run_script_checknode(node["precheck"]);
+                if (node["key"] != null)
+                    run_script_keynode(node["key"]);
+                if (node["wait"] != null)
+                    run_script_waitnode(node["wait"]);
+                if (node["save"] != null)
+                    run_script_waitnode(node["save"]);
+                if (node["postcheck"] != null)
+                    run_script_checknode(node["postcheck"]);
+            }
+            Program.logIt(string.Format("run_script_action: --"));
+        }
+        private bool run_script_checknode(XmlNode node)
+        {
+            bool ret = false;
+            Program.logIt(string.Format("run_script_checknode: ++ {0}", node.OuterXml));
+            if (node != null && node.NodeType == XmlNodeType.Element && (string.Compare(node.Name, "precheck") == 0|| string.Compare(node.Name, "postcheck") == 0))
+            {
+                XmlElement e = (XmlElement)node;
+                if (e.Attributes["id"] != null)
+                {
+                    string id = e.Attributes["id"].Value;
+                    XmlNode imgNode = node.OwnerDocument.SelectSingleNode(string.Format("//image[@id='{0}']", id));
+                    if (imgNode != null)
+                    {
+                        Bitmap b = null;
+                        using (XmlNodeReader r = new XmlNodeReader(imgNode))
+                        {
+                            r.MoveToContent();
+                            using (MemoryStream memStream = new MemoryStream())
+                            {
+                                int read = 0;
+                                byte[] data = new byte[1024 * 100];
+                                do
+                                {
+                                    read = r.ReadElementContentAsBase64(data, 0, data.Length);
+                                    if (read > 0)
+                                        memStream.Write(data, 0, data.Length);
+                                } while (read > 0);
+                                //ret = memStream.ToArray();
+                                b = new Bitmap(memStream);
+                            }
+                            r.Close();
+                        }
+                        if (b != null && ImUtility.is_same_image(b, current_raw_image))
+                            ret = true;
+                    }
+                }
+            }
+            Program.logIt(string.Format("run_script_checknode: -- ret={0}", ret));
+            return ret;
+        }
+        private void run_script_savenode(XmlNode node)
+        {
+            Program.logIt(string.Format("run_script_savenode: ++ {0}", node.OuterXml));
+            if (node != null && node.NodeType == XmlNodeType.Element && string.Compare(node.Name, "save") == 0)
+            {
+                XmlElement e = (XmlElement)node;
+                if (e.Attributes["id"] != null)
+                {
+                    using (MemoryStream ms = new MemoryStream())
+                    {
+                        current_raw_image.Save(ms, System.Drawing.Imaging.ImageFormat.Jpeg);
+                        string id = e.Attributes["id"].Value;
+                        XmlNode n = node.OwnerDocument.SelectSingleNode(string.Format("//image[@id='{0}']", id));
+                        if (n != null)
+                        {
+                            n.ParentNode.RemoveChild(n);
+                        }
+                        n = node.OwnerDocument.SelectSingleNode("//images");
+                        if (n == null)
+                        {
+                            n = node.OwnerDocument.CreateElement("images");
+                            n = node.OwnerDocument.DocumentElement.AppendChild(n);
+                        }
+                        using (XmlWriter xmlWrite = n.CreateNavigator().AppendChild())
+                        {
+                            xmlWrite.WriteStartElement("image");
+                            xmlWrite.WriteAttributeString("id", id);
+                            byte[] d = ms.ToArray();
+                            xmlWrite.WriteBase64(d, 0, d.Length);
+                            xmlWrite.WriteEndElement();
+                            xmlWrite.Flush();
+                        }
+                    }
+                }
+            }
+            Program.logIt(string.Format("run_script_savenode: --"));
+        }
+        private void run_script_waitnode(XmlNode node)
+        {
+            Program.logIt(string.Format("run_script_waitnode: ++ {0}", node.OuterXml));
+            if (node != null && node.NodeType == XmlNodeType.Element && string.Compare(node.Name, "wait") == 0)
+            {
+                XmlElement e = (XmlElement)node;
+                int interval = 200;
+                int framecount = 5;
+                int threshold = 50;
+                int timeout = 5;
+                if (e.Attributes["interval"] != null)
+                {
+                    if (!Int32.TryParse(e.Attributes["interval"].Value, out interval))
+                        interval = 200;
+                }
+                if (e.Attributes["framecount"] != null)
+                {
+                    if (!Int32.TryParse(e.Attributes["framecount"].Value, out framecount))
+                        framecount = 5;
+                }
+                if (e.Attributes["threshold"] != null)
+                {
+                    if (!Int32.TryParse(e.Attributes["threshold"].Value, out threshold))
+                        threshold = 50;
+                }
+                if (e.Attributes["timeout"] != null)
+                {
+                    if (!Int32.TryParse(e.Attributes["timeout"].Value, out timeout))
+                        timeout = 5;
+                }
+                Program.logIt(string.Format("interval={0}, framecount={1}, threshold={2}, timeout={3}", interval, framecount, threshold, timeout));
+                waitForScreenStable(interval, framecount, threshold, timeout);
+            }
+            Program.logIt("run_script_waitnode: --");
+        }
+        private void run_script_keynode(XmlNode node)
+        {
+            Program.logIt(string.Format("run_script_keynode: ++ {0}", node.OuterXml));
+            if (node != null && node.NodeType == XmlNodeType.Element && string.Compare(node.Name, "key") == 0)
+            {
+                XmlElement e = (XmlElement)node;
+                int count = 1;
+                if (e.Attributes["count"] != null)
+                {
+                    if (!Int32.TryParse(e.Attributes["count"].Value, out count))
+                        count = 1;
+                }
+                int delay = 0;
+                if (e.Attributes["delay"] != null)
+                {
+                    if (!Int32.TryParse(e.Attributes["delay"].Value, out delay))
+                        delay = 0;
+                }
+                bool wait = true;
+                if (e.Attributes["wait"] != null)
+                {
+                    if (string.Compare(e.Attributes["wait"].Value, bool.FalseString, true) == 0)
+                        wait = false;
+                }
+                Byte key = 0x0;
+                if (e.Attributes["char"] != null)
+                {
+                    key =(Byte) Convert.ToInt32(e.Attributes["char"].Value, 16);
+                }
+                Program.logIt(string.Format("Char=0x{0:x2}, count={1}, wait={2}, dealy={3}", key, count, wait, delay));
+                do
+                {
+                    Bitmap b1 = new Bitmap(current_raw_image);
+                    KeyInput.getInstance().sendKey(key);
+                    if (delay > 0)
+                        System.Threading.Thread.Sleep(delay);
+                    if (wait)
+                        waitForScreenChange(b1);
+                    count--;
+                } while (count > 0);
+            }
+            Program.logIt("run_script_keynode: --");
+        }
+        private void  record_process(string target_folder)
+        {
+            Program.logIt("record_process: ++");
+            // 0. close all apps and gsettings
+            this.busy = true;
+            this.busy_text = "Prepare recording in progress.\n Please wait.";
+            //go_to_top_of_setting();
+            //close_all_apps_v2();
+            this.busy = false;
+            this.recording = true;
+            // first action is go to home
+            {
+                System.Collections.Generic.Dictionary<string, object> dict = new Dictionary<string, object>();
+                dict.Add("action", "gotohome");
+                dict.Add("timestamp", DateTime.Now.Ticks);
+                if(recording_actions!=null)
+                    recording_actions.Enqueue(dict);
+            }
+            // wait for imput
+            while (recording)
+                System.Threading.Thread.Sleep(500);
+            // save actions
+            save_action(target_folder);
+            Program.logIt("record_process: --");
+        }
+        private async void recordToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (!busy)
+            {
+                string s = recordToolStripMenuItem.Text;
+                if (string.Compare(s, "record", true) == 0)
+                {
+                    string folderName = System.IO.Path.Combine(Application.StartupPath,"temp");
+                    System.IO.Directory.CreateDirectory(folderName);
+                    recording_actions = new Queue<Dictionary<string, object>>();
+                    recordToolStripMenuItem.Text = "Stop";
+                    //this.busy = true;
+                    //this.busy_text = "Testing in progress.\n Please wait.";
+                    await Task.Run(() =>
+                    {
+                        Program.logIt("record: ++");
+                        record_process(folderName);
+                        Program.logIt("record: --");
+                    });
+                    //this.busy = false;
+                    recordToolStripMenuItem.Text = "Record";
+                }
+                else if (string.Compare(s, "stop", true) == 0)
+                {
+                    this.recording = false;
+                }
+            }
+
+        }
+        private void save_action(string target_folder)
+        {
+            if (recording_actions != null)
+            {
+                Dictionary<string, object> d = new Dictionary<string, object>();
+                var a = recording_actions.ToArray();
+                foreach(var i in a)
+                {
+                    Dictionary<string, string> td = new Dictionary<string, string>();
+                    foreach(var j in i)
+                    {
+                        if (j.Value.GetType() == typeof(Bitmap))
+                        {
+                            Bitmap b = (Bitmap)j.Value;
+                            string fn = System.IO.Path.Combine(target_folder, System.IO.Path.GetRandomFileName());
+                            fn = System.IO.Path.ChangeExtension(fn, ".jpg");
+                            b.Save(fn);
+                            td.Add(j.Key, System.IO.Path.GetFileName(fn));
+                        }
+                    }
+                    foreach(var j in td)
+                    {
+                        i[j.Key] = j.Value;
+                    }
+                }
+                d.Add("mobileQ", a);
+                var jss = new System.Web.Script.Serialization.JavaScriptSerializer();
+                string s = jss.Serialize(d);
+                System.IO.File.WriteAllText(System.IO.Path.Combine(target_folder, "mobileQ.json"), s);
+            }
+        }
+
+        private async void playScripToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (!busy)
+            {
+                using (var fbd = new FolderBrowserDialog())
+                {
+                    DialogResult result = fbd.ShowDialog();
+
+                    if (result == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
+                    {
+                        this.busy = true;
+                        this.busy_text = String.Format("Playing script in progress.\n Please wait.");
+                        await Task.Run(() =>
+                        {
+                            Program.logIt(string.Format("Play script: ++", fbd.SelectedPath));
+                            run_script(fbd.SelectedPath);
+                            Program.logIt("Play script: --");
+                        });
+                    }
+                }
+                this.busy = false;
+            }
         }
     }
 }
