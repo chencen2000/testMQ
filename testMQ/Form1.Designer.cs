@@ -296,7 +296,7 @@
             // 
             this.playScripToolStripMenuItem.Name = "playScripToolStripMenuItem";
             this.playScripToolStripMenuItem.Size = new System.Drawing.Size(180, 22);
-            this.playScripToolStripMenuItem.Text = "Play Scrip";
+            this.playScripToolStripMenuItem.Text = "Play Script";
             this.playScripToolStripMenuItem.Click += new System.EventHandler(this.playScripToolStripMenuItem_Click);
             // 
             // Form1

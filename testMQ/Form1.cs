@@ -10,6 +10,7 @@ using System.ComponentModel;
 using System.Data;
 using System.Drawing;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Text;
@@ -28,7 +29,7 @@ namespace testMQ
     //}
     public partial class Form1 : Form
     {
-        VideoCaptureDevice videoSource = null;
+        //VideoCaptureDevice videoSource = null;
         System.Collections.Concurrent.ConcurrentQueue<Bitmap> new_frame_queue = new System.Collections.Concurrent.ConcurrentQueue<Bitmap>();
         System.Threading.AutoResetEvent quit = new System.Threading.AutoResetEvent(false);
         Bitmap current_image = null;
@@ -50,7 +51,7 @@ namespace testMQ
 
         private void Form1_Load(object sender, EventArgs e)
         {
-            var videoDevices = new FilterInfoCollection(FilterCategory.VideoInputDevice);
+            //var videoDevices = new FilterInfoCollection(FilterCategory.VideoInputDevice);
             //videoSource = new VideoCaptureDevice(videoDevices[0].MonikerString);
             //videoSource.VideoResolution = videoSource.VideoCapabilities[0];
             //foreach (var vc in videoSource.VideoCapabilities)
@@ -64,11 +65,77 @@ namespace testMQ
             //System.Threading.Thread t = new System.Threading.Thread(this.processImageThread);
             //t.IsBackground = true;
             //t.Start();
+            timer1.Tick += timer1_Tick;
             timer1.Enabled = true;
             timer1.Start();
             // COM4
-            KeyInput.getInstance().setSerialPort("COM5");
+            string s = Program.args.ContainsKey("port") ? Program.args["port"] : "COM3";
+            KeyInput.getInstance().setSerialPort(s);
             KeyInput.getInstance().start();
+            //
+            if (Program.args.ContainsKey("getimei"))
+            {
+                this.Visible = false;
+                this.Opacity = 0;
+                this.ShowInTaskbar = false;
+                Task.Run(() =>
+                {
+                    run_getimei();
+                });
+            }
+            else if (Program.args.ContainsKey("playback"))
+            {
+                this.Visible = false;
+                this.Opacity = 0;
+                this.ShowInTaskbar = false;
+                Task.Run(() =>
+                {
+                    run_playback();
+                });
+            }
+            
+        }
+        private void run_getimei()
+        {
+            while (current_raw_image == null)
+                System.Threading.Thread.Sleep(1000);
+
+            string s = read_imei();
+            System.Console.WriteLine(string.Format("imei={0}", s));
+            //System.Console.ReadKey();
+            this.Invoke(new MethodInvoker(delegate
+            {
+                this.Close();
+            }));
+        }
+        private void run_playback()
+        {
+            string pb = Program.args["playback"];
+            if (System.IO.File.Exists(pb))
+            {
+                while (current_raw_image == null)
+                    System.Threading.Thread.Sleep(1000);
+                try
+                {
+                    run_script(pb);
+                    Program.exit_code = 0;
+                }
+                catch (Exception ex)
+                {
+                    Program.logIt(ex.Message);
+                    Program.logIt(ex.StackTrace);
+                    Program.exit_code = 1;
+                }
+            }
+            else
+            {
+                Program.exit_code = 2;
+            }
+            //System.Threading.Thread.Sleep(3000);
+            this.Invoke(new MethodInvoker(delegate
+            {
+                this.Close();
+            }));
         }
 
         private void VideoSource_NewFrame(object sender, Accord.Video.NewFrameEventArgs eventArgs)
@@ -86,11 +153,11 @@ namespace testMQ
         {
             Program.logIt("Form1_FormClosing: ++");
             KeyInput.getInstance().close();
-            if (videoSource != null)
-            {
-                videoSource.SignalToStop();
-                videoSource.WaitForStop();
-            }
+            //if (videoSource != null)
+            //{
+            //    videoSource.SignalToStop();
+            //    videoSource.WaitForStop();
+            //}
             Program.logIt("Form1_FormClosing: --");
         }
 
@@ -226,6 +293,9 @@ namespace testMQ
                                 // remove fringe 30 pixel
                                 Bitmap b1 = ImUtility.crop_image(checkpoint, new Rectangle(0, 30, checkpoint.Width, checkpoint.Height - 30));
                                 Bitmap b2 = ImUtility.crop_image(current_raw_image, new Rectangle(0, 30, current_raw_image.Width, current_raw_image.Height - 30));
+                                // just compare the blue rectangle
+                                //Bitmap b1 = ImUtility.crop_image(checkpoint, br);
+                                //Bitmap b2 = ImUtility.crop_image(current_raw_image, br);
                                 //if (!ImUtility.is_same_image(checkpoint, current_raw_image))
                                 if (!ImUtility.is_same_image(b1, b2))
                                 {
@@ -970,20 +1040,22 @@ namespace testMQ
             }
             Program.logIt(string.Format("click_home: -- {0}", DateTime.Now.ToString("o")));
         }
-        void read_imei()
+        string read_imei()
         {
+            string ret = string.Empty;
             Bitmap b1 = new Bitmap(current_raw_image);
-            go_to_dialer_v2(true,true);
-            Bitmap dialer = new Bitmap(@"C:\logs\pictures\dialer_keypad.jpg");
-            bool done = false;
-            while (!done)
-            {
-                b1 = new Bitmap(current_raw_image);
-                if (ImUtility.is_same_image(b1, dialer, 30))
-                {
-                    done = true;
-                }
-            }
+            //go_to_dialer_v2(true,true);
+            go_to_dialer(true, true);
+            //Bitmap dialer = new Bitmap(@"C:\logs\pictures\dialer_keypad.jpg");
+            //bool done = false;
+            //while (!done)
+            //{
+            //    b1 = new Bitmap(current_raw_image);
+            //    if (ImUtility.is_same_image(b1, dialer, 30))
+            //    {
+            //        done = true;
+            //    }
+            //}
 
 
             //if (false)
@@ -1037,16 +1109,22 @@ namespace testMQ
                 Image<Gray, Byte> t = uimage.ToImage<Gray, Byte>().ThresholdBinary(new Gray(m1.V0 + m2.V0), new Gray(255));
                 Rectangle r = new Rectangle(0, t.Height / 2 - 200, t.Width, 200);
                 Image<Gray, Byte> roi = t.GetSubRect(r);
-                string s = ocrEng.ocr_easy(roi.Bitmap);
-                if (!string.IsNullOrEmpty(s))
-                {
-                    //Program.logIt(string.Format("IMEI={0}", s));
-                    MessageBox.Show(s, "IMEI");
-                }
+                ret = ocrEng.ocr_easy(roi.Bitmap);
+                //if (!string.IsNullOrEmpty(s))
+                //{
+                //    //Program.logIt(string.Format("IMEI={0}", s));
+                //    MessageBox.Show(s, "IMEI");
+                //}
+                b1 = new Bitmap(current_raw_image);
+                KeyInput.getInstance().sendKey(0x52);
+                waitForScreenChange(b1);
+                waitForScreenStable(250, 4);
                 //KeyInput.getInstance().sendKey(0x52);
                 //System.Threading.Thread.Sleep(1000);
-                //KeyInput.getInstance().sendKey(0x4a);
+                //waitForScreenStable(250, 4);
+                KeyInput.getInstance().sendKey(0x4a);
             }
+            return ret;
         }
         void go_to_dialer_v2(bool tap = false, bool clickhome = false)
         {
@@ -1062,58 +1140,73 @@ namespace testMQ
         }
         void go_to_dialer(bool tap=false, bool clickhome = false)
         {
-            if (clickhome) click_home();
+            if (clickhome)
+                click_home_v2();
             // look for phone icon rectangle;
-            Rectangle[] phone_rect = null;
+            Rectangle phone_rect = Rectangle.Empty;
             try
             {
                 Image<Bgr, Byte> img = new Image<Bgr, byte>(current_raw_image);
                 CascadeClassifier haar_email = new CascadeClassifier(@"trained\phone_cascade.xml");
-                phone_rect = haar_email.DetectMultiScale(img);
-                foreach (var r in phone_rect)
+                Rectangle[] rects = haar_email.DetectMultiScale(img);
+                foreach (var r in rects)
                 {
-                    Program.logIt(string.Format("{0}", r));
+                    Program.logIt(string.Format("phone position: {0}", r));
+                    if (r.Width * r.Height > phone_rect.Width * phone_rect.Height)
+                        phone_rect = r;
                 }
             }
             catch (Exception) { }
-            if (phone_rect.Length > 0)
+            if (!phone_rect.IsEmpty)
             {
                 int n = 36;
                 bool done = false;
-                Rectangle rect = Rectangle.Empty;
-                Bitmap b1 = new Bitmap(current_raw_image);
-                while (!done && n>0)
+                bool not_found = false;
+                //Bitmap home_screen = get_homescreen_without_bluebox();
+                Bitmap home_screen = new Bitmap(homescreen);
+                Point point_of_first_item = Point.Empty;
+                while (!done && n>0 && !not_found)
                 {
-                    DateTime _s = DateTime.Now;
+                    Bitmap b = new Bitmap(current_raw_image);
                     KeyInput.getInstance().sendKey(0x4f);
-                    n--;
-                    Bitmap b2 = new Bitmap(current_raw_image);
-                    do
+                    waitForScreenChange(b, 30);
+                    b = new Bitmap(current_raw_image);
+                    Rectangle br = ImUtility.detect_blue_rectangle(home_screen, b);
+                    if (point_of_first_item.IsEmpty)
                     {
-                        if ((DateTime.Now - _s).TotalSeconds > 3)
-                            break;
-                        System.Threading.Thread.Sleep(50);
-                        b2 = new Bitmap(current_raw_image);
-                    } while (ImUtility.is_same_image(b1,b2));
-                    b1 = b2;
-                    Tuple<bool, Rectangle, Bitmap> r = ImUtility.extrac_blue_block(b2, new Size(100, 100));
-                    if (r.Item1)
+                        point_of_first_item = new Point(br.X + br.Width / 2, br.Y + br.Height / 2);
+                        Program.logIt(string.Format("set first item: {0}", br));
+                    }
+                    else
                     {
-                        Program.logIt(string.Format("Found blue Block: {0}", r.Item2));
-                        foreach(Rectangle pr in phone_rect)
+                        if (br.Contains(point_of_first_item))
                         {
-                            if(r.Item2.Contains(pr))
-                            {
-                                done = true;
-                                break;
-                            }
+                            Program.logIt(string.Format("Loop back to first item: {0}", br));
+                            not_found = true;
+                        }
+                    }
+                    //foreach (Rectangle pr in phone_rect)
+                    {
+                        if (br.Contains(phone_rect))
+                        {
+                            done = true;
+                            break;
                         }
                     }
                 }
                 if (done)
                 {
-                    if(tap)
+                    Program.logIt("go_to_dialer: done.");
+                    if (tap)
+                    {
+                        Bitmap b = new Bitmap(current_raw_image);
                         KeyInput.getInstance().sendKey(0x52);
+                        waitForScreenChange(b);
+                        waitForScreenStable(250, 4);
+                        //System.Threading.Thread.Sleep(delay);
+                        //b = new Bitmap(current_raw_image);
+                        //b.Save("temp_1.jpg");
+                    }
                 }
             }
         }
@@ -1183,8 +1276,8 @@ namespace testMQ
                         waitForScreenChange(b);
                         waitForScreenStable(250, 4);
                         //System.Threading.Thread.Sleep(delay);
-                        b = new Bitmap(current_raw_image);
-                        b.Save("temp_1.jpg");
+                        //b = new Bitmap(current_raw_image);
+                        //b.Save("temp_1.jpg");
                     }
                 }
             }
@@ -1470,7 +1563,9 @@ namespace testMQ
         {
             System.Threading.ThreadPool.QueueUserWorkItem(o =>
             {
-                read_imei();
+                string s = read_imei();
+                if (!string.IsNullOrEmpty(s))
+                    MessageBox.Show(s, "IMEI");
             });
         }
         Bitmap get_image_v2()
@@ -1478,7 +1573,8 @@ namespace testMQ
             Bitmap ret = null;
             try
             {
-                string url = @"http://localhost:21173/getScreen?label=1";
+                string s = Program.args.ContainsKey("label") ? Program.args["label"] : "1";
+                string url = string.Format(@"http://localhost:21173/getScreen?label={0}", s);
                 WebClient wc = new WebClient();
                 byte[] data = wc.DownloadData(url);
                 using (var ms = new MemoryStream(data))
@@ -1724,9 +1820,16 @@ namespace testMQ
                 busy = false;
             }
         }
-        void run_script(string folder)
+        void run_script(string zipfilename)
         {
-            Program.logIt(string.Format("run_script: ++ {0}", folder));
+            Program.logIt(string.Format("run_script: ++ {0}", zipfilename));
+            string folder = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(zipfilename), "temp");
+            try
+            {
+                System.IO.Directory.CreateDirectory(folder);
+                ZipFile.ExtractToDirectory(zipfilename, folder);
+            }
+            catch (Exception) { }
             try
             {
                 string fn = System.IO.Path.Combine(folder, "mobileQ.json");
@@ -1789,6 +1892,11 @@ namespace testMQ
                 Program.logIt(ex.Message);
                 Program.logIt(ex.StackTrace);
             }
+            try
+            {
+                System.IO.Directory.Delete(folder, true);
+            }
+            catch (Exception) { }
             Program.logIt(string.Format("run_script: --"));
         }
         public void run_script_file(string filename)
@@ -2026,19 +2134,19 @@ namespace testMQ
             }
             // wait for imput
             while (recording)
-                System.Threading.Thread.Sleep(500);
+                System.Threading.Thread.Sleep(1000);
             // save actions
-            save_action(target_folder);
+            //save_action(target_folder);
             Program.logIt("record_process: --");
         }
         private async void recordToolStripMenuItem_Click(object sender, EventArgs e)
         {
             if (!busy)
             {
+                string folderName = System.IO.Path.Combine(Application.StartupPath, "temp");
                 string s = recordToolStripMenuItem.Text;
                 if (string.Compare(s, "record", true) == 0)
                 {
-                    string folderName = System.IO.Path.Combine(Application.StartupPath,"temp");
                     System.IO.Directory.CreateDirectory(folderName);
                     recording_actions = new Queue<Dictionary<string, object>>();
                     recordToolStripMenuItem.Text = "Stop";
@@ -2056,11 +2164,24 @@ namespace testMQ
                 else if (string.Compare(s, "stop", true) == 0)
                 {
                     this.recording = false;
+                    // ask for filename to save
+                    SaveFileDialog saveFileDialog1 = new SaveFileDialog();
+                    saveFileDialog1.Filter = "Script File|*.zip";
+                    saveFileDialog1.Title = "Save a Script File";
+                    saveFileDialog1.ShowDialog();
+                    if (saveFileDialog1.FileName != "")
+                    {
+                        await Task.Run(() =>
+                        {
+                            save_action(saveFileDialog1.FileName, folderName);
+                            System.IO.Directory.Delete(folderName, true);
+                        });
+                    }
                 }
             }
 
         }
-        private void save_action(string target_folder)
+        private void save_action(string target_name, string source_name)
         {
             if (recording_actions != null)
             {
@@ -2074,7 +2195,7 @@ namespace testMQ
                         if (j.Value.GetType() == typeof(Bitmap))
                         {
                             Bitmap b = (Bitmap)j.Value;
-                            string fn = System.IO.Path.Combine(target_folder, System.IO.Path.GetRandomFileName());
+                            string fn = System.IO.Path.Combine(source_name, System.IO.Path.GetRandomFileName());
                             fn = System.IO.Path.ChangeExtension(fn, ".jpg");
                             b.Save(fn);
                             td.Add(j.Key, System.IO.Path.GetFileName(fn));
@@ -2088,7 +2209,10 @@ namespace testMQ
                 d.Add("mobileQ", a);
                 var jss = new System.Web.Script.Serialization.JavaScriptSerializer();
                 string s = jss.Serialize(d);
-                System.IO.File.WriteAllText(System.IO.Path.Combine(target_folder, "mobileQ.json"), s);
+                System.IO.File.WriteAllText(System.IO.Path.Combine(source_name, "mobileQ.json"), s);
+                //
+                // zip target tmp to target folder
+                ZipFile.CreateFromDirectory(source_name, target_name);
             }
         }
 
@@ -2096,6 +2220,25 @@ namespace testMQ
         {
             if (!busy)
             {
+                OpenFileDialog saveFileDialog1 = new OpenFileDialog();
+                saveFileDialog1.Filter = "Script File|*.zip";
+                saveFileDialog1.Title = "Save a Script File";
+                DialogResult result = saveFileDialog1.ShowDialog();
+                if (saveFileDialog1.FileName != "")
+                {
+                    if (result == DialogResult.OK && !string.IsNullOrWhiteSpace(saveFileDialog1.FileName))
+                    {
+                        this.busy = true;
+                        this.busy_text = String.Format("Playing script in progress.\n Please wait.");
+                        await Task.Run(() =>
+                        {
+                            Program.logIt(string.Format("Play script: ++", saveFileDialog1.FileName));
+                            run_script(saveFileDialog1.FileName);
+                            Program.logIt("Play script: --");
+                        });
+                    }
+                }
+                /*
                 using (var fbd = new FolderBrowserDialog())
                 {
                     DialogResult result = fbd.ShowDialog();
@@ -2111,7 +2254,7 @@ namespace testMQ
                             Program.logIt("Play script: --");
                         });
                     }
-                }
+                }*/
                 this.busy = false;
             }
         }

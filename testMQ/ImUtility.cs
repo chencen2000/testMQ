@@ -422,7 +422,7 @@ namespace testMQ
                 Point maxP = new Point();
                 Point minP = new Point();
                 CvInvoke.MinMaxLoc(m, ref min, ref max, ref minP, ref maxP);
-                Program.logIt(string.Format("{0}: {1}", max, new Rectangle(maxP, img2.Size)));
+                //Program.logIt(string.Format("{0}: {1}", max, new Rectangle(maxP, img2.Size)));
                 if (max > 0.99)
                     ret = true;
             }

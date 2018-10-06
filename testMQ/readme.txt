@@ -1,4 +1,9 @@
-﻿
+﻿command line:
+-playback=<path to folder for zip file>
+-label=n, 1
+-port=com<n>
+
+
 iPhone and iPod touch Retina display: 120 x 120
 iPhone and iPod touch standard resolution: 60 x 60
 
@@ -78,3 +83,5 @@ zoomed: 125x179; row=5,
 
 http://ip:21173/getConnectedDevicesList
 http://ip:21173/getScreen?deviceId={deviceId}
+
+

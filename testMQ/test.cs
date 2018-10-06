@@ -148,7 +148,7 @@ namespace testMQ
             //search_color();
             //Tuple<bool, Rectangle>  r= extra_blue_block_in_settings(new Bitmap(@"C:\test\setting_01.jpg"));
             //getMSSIM();
-            test_2();
+            //test_2();
             //test_haar_face();
             //ui_test();
             //test3();
@@ -664,16 +664,25 @@ namespace testMQ
         }
         static void test_similarity()
         {
-            Bitmap b1 = new Bitmap("temp_2.jpg");
-            Bitmap t = new Bitmap(@"C:\logs\pictures\ios_icons\scroll_right_icon.jpg");
-            //Image<Gray, Byte> b11 = new Image<Gray, byte>(b1);
-            //Image<Gray, Byte> t11 = new Image<Gray, byte>(t);
-            //Mat m = new Mat();
-            //CvInvoke.Threshold(b11, m, 0, 255, ThresholdType.Otsu | ThresholdType.Binary);
-            //b1 = m.Bitmap;
-            //CvInvoke.Threshold(t11, m, 0, 255, ThresholdType.Otsu | ThresholdType.Binary);
-            //t = m.Bitmap;
-            var res = ImUtility.multiscale_matchtemplate(b1, t);
+            Bitmap b1 = new Bitmap("temp_1.jpg");
+            Bitmap t = new Bitmap(@"C:\projects\local\github\testMQ\testMQ\scripts\get_imei\xhahnbyc.jpg");
+            Rectangle r = new Rectangle(33, 908, 102, 102);
+            Bitmap b10 = ImUtility.crop_image(b1, r);
+            Bitmap b20 = ImUtility.crop_image(t, r);
+
+            Image<Gray, Byte> b11 = new Image<Gray, byte>(b10);
+            Image<Gray, Byte> t11 = new Image<Gray, byte>(b20);
+            Mat m = new Mat();
+            CvInvoke.Threshold(b11, m, 0, 255, ThresholdType.Otsu | ThresholdType.Binary);
+            b1 = m.Bitmap;
+            CvInvoke.Threshold(t11, m, 0, 255, ThresholdType.Otsu | ThresholdType.Binary);
+            t = m.Bitmap;
+            //var res = ImUtility.multiscale_matchtemplate(b1, t);
+            ImUtility.is_same_image(b1, t);
+
+            //b11.Save("temp_2.jpg");
+            //b21.Save("temp_3.jpg");
+            //ImUtility.is_same_image(b11, b21);
         }
         public static Tuple<double, Point, Rectangle> multiscale_matchtemplate(Bitmap src, Bitmap template, double threshold = 0.95)
         {
