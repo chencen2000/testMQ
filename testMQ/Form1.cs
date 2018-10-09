@@ -1854,7 +1854,8 @@ namespace testMQ
                                 {
                                     if(data.ContainsKey("char"))
                                     {
-                                        KeyInput.getInstance().sendKey((byte)data["char"]);
+                                        int i = (int)data["char"];
+                                        KeyInput.getInstance().sendKey((byte)i);
                                     }
                                 }
                                 else if (string.Compare(action, "scroll", true) == 0)
