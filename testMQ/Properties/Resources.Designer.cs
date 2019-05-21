@@ -59,5 +59,44 @@ namespace testMQ.Properties {
                 resourceCulture = value;
             }
         }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Scratch-AA-S
+        ///Scratch-AA-Minor
+        ///Scratch-AA-Major
+        ///Scratch-AA-Other2
+        ///Scratch-AA-Other1
+        ///Scratch-A-S1
+        ///Scratch-A-S2
+        ///Scratch-A-Minor
+        ///Scratch-A-Major
+        ///Scratch-A-Other3
+        ///Scratch-A-Other2
+        ///Scratch-A-Other1
+        ///Scratch-A-WearedHomeButton
+        ///Scratch-B-S1
+        ///Scratch-B-S2
+        ///Scratch-B-Minor
+        ///Scratch-B-Major
+        ///Scratch-B-Other3
+        ///Scratch-B-Other2
+        ///Scratch-B-Other1
+        ///Scratch-C-S1
+        ///Scratch-C-S2
+        ///Scratch-C-Minor
+        ///Scratch-C-Major
+        ///Scratch-C-Other3
+        ///Scratch-C-Other2
+        ///Scratch-C-Other1
+        ///Nick-AA-S
+        ///Nick-AA-Minor
+        ///Nick-AA-Major
+        ///Nick-AA [rest of string was truncated]&quot;;.
+        /// </summary>
+        internal static string keys {
+            get {
+                return ResourceManager.GetString("keys", resourceCulture);
+            }
+        }
     }
 }
