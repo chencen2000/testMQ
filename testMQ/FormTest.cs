@@ -15,9 +15,9 @@ namespace testMQ
 {
     public partial class FormTest : Form
     {
-        VideoCaptureDevice videoSource = null;
-        MJPEGStream stream = null;
-        VideoCapture vc = null;
+        //VideoCaptureDevice videoSource = null;
+        //MJPEGStream stream = null;
+        //VideoCapture vc = null;
         public FormTest()
         {
             InitializeComponent();
@@ -74,7 +74,7 @@ namespace testMQ
         private void Vc_ImageGrabbed(object sender, EventArgs e)
         {
             Mat m = new Mat();
-            vc.Retrieve(m);
+            //vc.Retrieve(m);
             pictureBox1.Invoke(new MethodInvoker(delegate
             {
                 pictureBox1.Image = m.Bitmap;
@@ -84,43 +84,43 @@ namespace testMQ
 
         private void VideoSource_NewFrame(object sender, Accord.Video.NewFrameEventArgs eventArgs)
         {
-            if (videoSource.IsRunning)
-            {
-                Bitmap b = (Bitmap)eventArgs.Frame.Clone();
-                try
-                {
-                    pictureBox1.Invoke(new MethodInvoker(delegate
-                    {
-                        try
-                        {
-                            pictureBox1.Image = b;
-                        }
-                        catch (Exception) { }
-                    }));
-                }
-                catch (Exception) { }
-            }
+            //if (videoSource.IsRunning)
+            //{
+            //    Bitmap b = (Bitmap)eventArgs.Frame.Clone();
+            //    try
+            //    {
+            //        pictureBox1.Invoke(new MethodInvoker(delegate
+            //        {
+            //            try
+            //            {
+            //                pictureBox1.Image = b;
+            //            }
+            //            catch (Exception) { }
+            //        }));
+            //    }
+            //    catch (Exception) { }
+            //}
         }
 
         private void FormTest_FormClosing(object sender, FormClosingEventArgs e)
         {
-            if (videoSource != null)
-            {
-                //videoSource.Stop();
-                videoSource.SignalToStop();
-                //videoSource.WaitForStop();
-            }
-            if (stream != null)
-            {
-                stream.Stop();
-            }
-            if (vc != null)
-                vc.Stop();
+            //if (videoSource != null)
+            //{
+            //    //videoSource.Stop();
+            //    videoSource.SignalToStop();
+            //    //videoSource.WaitForStop();
+            //}
+            //if (stream != null)
+            //{
+            //    stream.Stop();
+            //}
+            //if (vc != null)
+            //    vc.Stop();
         }
 
         private void pictureBox1_Click(object sender, EventArgs e)
         {
-            videoSource.DisplayPropertyPage(this.Handle);
+            //videoSource.DisplayPropertyPage(this.Handle);
 
             SaveFileDialog saveFileDialog1 = new SaveFileDialog();
             saveFileDialog1.Filter = "JPeg Image|*.jpg|Bitmap Image|*.bmp|Gif Image|*.gif";

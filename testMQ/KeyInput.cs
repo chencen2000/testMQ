@@ -9,6 +9,7 @@ namespace testMQ
     /*
 # Accessibility shortcut: 0x46 (Keyboard)
 # Control shortcut: 0x47 (Keyboard)
+# stop scan: 0x48 (Keyboard) -- funtion disable show the blue block on screen
 # AppSwitch: 0x4d (Keyboard End)
 # Home: 0x4a (Keyboard Home)
 # Previous item: 0x50 (Keyboard LeftArrow)
